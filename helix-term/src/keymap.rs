@@ -741,6 +741,7 @@ impl Default for Keymaps {
                 "/" => global_search,
                 "k" => hover,
                 "r" => rename_symbol,
+                "t" => theme_picker,
                 "l" => language_server_picker,
                 "?" => command_palette,
             },
