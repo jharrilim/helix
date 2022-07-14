@@ -143,7 +143,8 @@
 <a href="https://docs.helix-editor.com/master">https://docs.helix-editor.com/master</a>.</p>
 <p>See the <a href="./usage.html">usage</a> section for a quick overview of the editor, <a href="./keymap.html">keymap</a>
 section for all available keybindings and the <a href="./configuration.html">configuration</a> section
-for defining custom keybindings, setting themes, etc.</p>
+for defining custom keybindings, setting themes, etc.
+For everything else (e.g., how to install supported language servers), see the <a href="https://github.com/helix-editor/helix/wiki">Helix Wiki</a>.</p>
 <p>Refer the <a href="https://github.com/helix-editor/helix/wiki/FAQ">FAQ</a> for common questions.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="installation"><a class="header" href="#installation">Installation</a></h1>
 <p>We provide pre-built binaries on the <a href="https://github.com/helix-editor/helix/releases">GitHub Releases page</a>.</p>
@@ -159,8 +160,11 @@ brew install helix
 the project root. The flake can also be used to spin up a reproducible development
 shell for working on Helix with <code>nix develop</code>.</p>
 <p>Flake outputs are cached for each push to master using
-<a href="https://www.cachix.org/">Cachix</a>. With Cachix
-<a href="https://docs.cachix.org/installation">installed</a>, <code>cachix use helix</code> will
+<a href="https://www.cachix.org/">Cachix</a>. The flake is configured to
+automatically make use of this cache assuming the user accepts
+the new settings on first use.</p>
+<p>If you are using a version of Nix without flakes enabled you can
+<a href="https://docs.cachix.org/installation">install Cachix cli</a>; <code>cachix use helix</code> will
 configure Nix to use cached outputs when possible.</p>
 <h3 id="arch-linux"><a class="header" href="#arch-linux">Arch Linux</a></h3>
 <p>Releases are available in the <code>community</code> repository.</p>
@@ -193,10 +197,13 @@ via the <code>HELIX_RUNTIME</code> environment variable.</p>
 <pre><code>hx --health
 </code></pre>
 <p>For more information on the information displayed in the healthcheck results refer to <a href="https://github.com/helix-editor/helix/wiki/Healthcheck">Healthcheck</a>.</p>
-<h2 id="building-tree-sitter-grammars"><a class="header" href="#building-tree-sitter-grammars">Building tree-sitter grammars</a></h2>
+<h3 id="building-tree-sitter-grammars"><a class="header" href="#building-tree-sitter-grammars">Building tree-sitter grammars</a></h3>
 <p>Tree-sitter grammars must be fetched and compiled if not pre-packaged.
 Fetch grammars with <code>hx --grammar fetch</code> (requires <code>git</code>) and compile them
 with <code>hx --grammar build</code> (requires a C++ compiler).</p>
+<h3 id="installing-language-servers"><a class="header" href="#installing-language-servers">Installing language servers</a></h3>
+<p>Language servers can optionally be installed if you want their features (auto-complete, diagnostics etc.).
+Follow the <a href="https://github.com/helix-editor/helix/wiki/How-to-install-the-default-language-servers">instructions on the wiki page</a> to add your language servers of choice.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="usage"><a class="header" href="#usage">Usage</a></h1>
 <p>(Currently not fully documented, see the <a href="./keymap.html">keymappings</a> list for more.)</p>
 <p>See <a href="https://github.com/helix-editor/helix/blob/master/runtime/tutor.txt">tutor.txt</a> (accessible via <code>hx --tutor</code> or <code>:tutor</code>) for a vimtutor-like introduction.</p>
@@ -550,8 +557,8 @@ and <a href="./usage.html#textobject">textobject</a> usage.</p>
 <tr><td><code>k</code></td><td>Show documentation for item under cursor in a <a href="keymap.html#popup">popup</a> (<strong>LSP</strong>)</td><td><code>hover</code></td></tr>
 <tr><td><code>s</code></td><td>Open document symbol picker (<strong>LSP</strong>)</td><td><code>symbol_picker</code></td></tr>
 <tr><td><code>S</code></td><td>Open workspace symbol picker (<strong>LSP</strong>)</td><td><code>workspace_symbol_picker</code></td></tr>
-<tr><td><code>g</code></td><td>Open document diagnosics picker (<strong>LSP</strong>)</td><td><code>diagnostics_picker</code></td></tr>
-<tr><td><code>G</code></td><td>Open workspace diagnostics picker (<strong>LSP</strong>)</td><td><code>workspace_diagnosics_picker</code></td></tr>
+<tr><td><code>g</code></td><td>Open document diagnostics picker (<strong>LSP</strong>)</td><td><code>diagnostics_picker</code></td></tr>
+<tr><td><code>G</code></td><td>Open workspace diagnostics picker (<strong>LSP</strong>)</td><td><code>workspace_diagnostics_picker</code></td></tr>
 <tr><td><code>r</code></td><td>Rename symbol (<strong>LSP</strong>)</td><td><code>rename_symbol</code></td></tr>
 <tr><td><code>a</code></td><td>Apply code action  (<strong>LSP</strong>)</td><td><code>code_action</code></td></tr>
 <tr><td><code>'</code></td><td>Open last fuzzy picker</td><td><code>last_picker</code></td></tr>
@@ -780,6 +787,7 @@ Languages</a> guide for more language configuration information.</p>
 <tr><td>erb</td><td>✓</td><td></td><td></td><td></td></tr>
 <tr><td>erlang</td><td>✓</td><td>✓</td><td></td><td><code>erlang_ls</code></td></tr>
 <tr><td>fish</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
+<tr><td>fortran</td><td>✓</td><td></td><td>✓</td><td><code>fortls</code></td></tr>
 <tr><td>gdscript</td><td>✓</td><td></td><td>✓</td><td></td></tr>
 <tr><td>git-attributes</td><td>✓</td><td></td><td></td><td></td></tr>
 <tr><td>git-commit</td><td>✓</td><td></td><td></td><td></td></tr>
@@ -788,7 +796,7 @@ Languages</a> guide for more language configuration information.</p>
 <tr><td>git-ignore</td><td>✓</td><td></td><td></td><td></td></tr>
 <tr><td>git-rebase</td><td>✓</td><td></td><td></td><td></td></tr>
 <tr><td>gleam</td><td>✓</td><td>✓</td><td></td><td></td></tr>
-<tr><td>glsl</td><td>✓</td><td></td><td>✓</td><td></td></tr>
+<tr><td>glsl</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
 <tr><td>go</td><td>✓</td><td>✓</td><td>✓</td><td><code>gopls</code></td></tr>
 <tr><td>gomod</td><td>✓</td><td></td><td></td><td><code>gopls</code></td></tr>
 <tr><td>gowork</td><td>✓</td><td></td><td></td><td><code>gopls</code></td></tr>
@@ -855,6 +863,7 @@ Languages</a> guide for more language configuration information.</p>
 <tr><td>tsx</td><td>✓</td><td></td><td></td><td><code>typescript-language-server</code></td></tr>
 <tr><td>twig</td><td>✓</td><td></td><td></td><td></td></tr>
 <tr><td>typescript</td><td>✓</td><td></td><td>✓</td><td><code>typescript-language-server</code></td></tr>
+<tr><td>ungrammar</td><td>✓</td><td></td><td></td><td></td></tr>
 <tr><td>v</td><td>✓</td><td></td><td></td><td><code>vls</code></td></tr>
 <tr><td>vala</td><td>✓</td><td></td><td></td><td><code>vala-language-server</code></td></tr>
 <tr><td>verilog</td><td>✓</td><td>✓</td><td></td><td><code>svlangserver</code></td></tr>
@@ -1193,7 +1202,12 @@ over it and is merged into the default palette.</p>
 <li><code>operator</code> - <code>or</code>, <code>in</code></li>
 <li><code>directive</code> - Preprocessor directives (<code>#if</code> in C) </li>
 <li><code>function</code> - <code>fn</code>, <code>func</code></li>
-<li><code>storage</code> - Keywords that affect the storage of a variable, function or data structure <code>static</code>, <code>mut</code>, <code>const</code>, <code>ref</code></li>
+<li><code>storage</code> - Keywords describing how things are stored
+<ul>
+<li><code>type</code> - The type of something, <code>class</code>, <code>function</code>, <code>var</code>, <code>let</code>, etc. </li>
+<li><code>modifier</code> - Storage modifiers like <code>static</code>, <code>mut</code>, <code>const</code>, <code>ref</code>, etc.</li>
+</ul>
+</li>
 </ul>
 </li>
 <li>
