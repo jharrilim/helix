@@ -2,6 +2,20 @@
 # See the languages documentation: https://docs.helix-editor.com/master/languages.html
 
 [[language]]
+name = "duckstruct"
+scope = "source.ds"
+injection-regex = "^duckstruct$"
+file-types = ["ds"]
+comment-token = "//"
+indent = { tab-width = 2, unit = "  " }
+roots = []
+
+[[grammar]]
+name = "duckstruct"
+source = { git = "https://github.com/jharrilim/tree-sitter-duckstruct", rev = "d43b7d5855c69170d5deb9ba25fa803d5df2696f" }
+
+
+[[language]]
 name = "rust"
 scope = "source.rust"
 injection-regex = "rust"
