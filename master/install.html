@@ -198,6 +198,7 @@
 <li><a href="#macos">macOS</a>
 <ul>
 <li><a href="#homebrew-core">Homebrew Core</a></li>
+<li><a href="#macports">MacPorts</a></li>
 </ul>
 </li>
 <li><a href="#windows">Windows</a>
@@ -252,9 +253,7 @@ sudo apt update
 sudo apt install helix
 </code></pre>
 <h3 id="fedorarhel"><a class="header" href="#fedorarhel">Fedora/RHEL</a></h3>
-<p>Enable the <code>COPR</code> repository for Helix:</p>
-<pre><code class="language-sh">sudo dnf copr enable varlad/helix
-sudo dnf install helix
+<pre><code class="language-sh">sudo dnf install helix
 </code></pre>
 <h3 id="arch-linux-extra"><a class="header" href="#arch-linux-extra">Arch Linux extra</a></h3>
 <p>Releases are available in the <code>extra</code> repository:</p>
@@ -292,6 +291,9 @@ Download the official Helix AppImage from the <a href="https://github.com/helix-
 <h2 id="macos"><a class="header" href="#macos">macOS</a></h2>
 <h3 id="homebrew-core"><a class="header" href="#homebrew-core">Homebrew Core</a></h3>
 <pre><code class="language-sh">brew install helix
+</code></pre>
+<h3 id="macports"><a class="header" href="#macports">MacPorts</a></h3>
+<pre><code class="language-sh">port install helix
 </code></pre>
 <h2 id="windows"><a class="header" href="#windows">Windows</a></h2>
 <p>Install on Windows using <a href="https://learn.microsoft.com/en-us/windows/package-manager/winget/">Winget</a>, <a href="https://scoop.sh/">Scoop</a>, <a href="https://chocolatey.org/">Chocolatey</a>
@@ -340,6 +342,9 @@ grammars in the local <code>runtime</code> folder.</p>
 </li>
 </ol>
 <blockquote>
+<p>💡 If you do not want to fetch or build grammars, set an environment variable <code>HELIX_DISABLE_AUTO_GRAMMAR_BUILD</code></p>
+</blockquote>
+<blockquote>
 <p>💡 Tree-sitter grammars can be fetched and compiled if not pre-packaged. Fetch
 grammars with <code>hx --grammar fetch</code> and compile them with
 <code>hx --grammar build</code>. This will install them in
@@ -348,10 +353,10 @@ the <code>runtime</code> directory within the user's helix config directory (mor
 </blockquote>
 <h3 id="configuring-helixs-runtime-files"><a class="header" href="#configuring-helixs-runtime-files">Configuring Helix's runtime files</a></h3>
 <h4 id="linux-and-macos"><a class="header" href="#linux-and-macos">Linux and macOS</a></h4>
-<p>The <strong>runtime</strong> directory is one below the Helix source, so either set a
+<p>The <strong>runtime</strong> directory is one below the Helix source, so either export a
 <code>HELIX_RUNTIME</code> environment variable to point to that directory and add it to
 your <code>~/.bashrc</code> or equivalent:</p>
-<pre><code class="language-sh">HELIX_RUNTIME=~/src/helix/runtime
+<pre><code class="language-sh">export HELIX_RUNTIME=~/src/helix/runtime
 </code></pre>
 <p>Or, create a symbolic link:</p>
 <pre><code class="language-sh">ln -Ts $PWD/runtime ~/.config/helix/runtime
