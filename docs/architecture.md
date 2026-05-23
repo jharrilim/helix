@@ -47,6 +47,11 @@ applying the transaction.
 `Syntax` is the interface used to interact with tree-sitter ASTs for syntax
 highlighting and other features.
 
+Code folding uses tree-sitter `folds.scm` queries with `@fold` captures (see
+`runtime/queries/<lang>/folds.scm`). Fold ranges are discovered via
+`Syntax::folds` and collapsed state is stored per view in `Document` view data.
+The document formatter skips hidden lines when folds are active.
+
 ## View
 
 The `view` layer was supposed to be a frontend-agnostic imperative library that

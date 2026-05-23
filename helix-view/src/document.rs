@@ -36,6 +36,7 @@ use std::time::SystemTime;
 use helix_core::{
     editor_config::EditorConfig,
     encoding,
+    fold::FoldState,
     history::{History, State, UndoKind},
     indent::{auto_detect_indent_style, IndentStyle},
     line_ending::auto_detect_line_ending,
@@ -1477,6 +1478,14 @@ impl Document {
                 .map_pos(view_data.view_position.anchor, Assoc::Before);
         }
 
+        if let Some((start_line, end_line)) =
+            helix_core::fold::changed_line_range(old_doc.slice(..), changes)
+        {
+            for view_data in self.view_data.values_mut() {
+                view_data.folds.invalidate_lines(start_line, end_line);
+            }
+        }
+
         // generate revert to savepoint
         if !self.savepoints.is_empty() {
             let revert = transaction.invert(&old_doc);
@@ -2065,6 +2074,14 @@ impl Document {
         self.view_data_mut(view_id).view_position = new_offset;
     }
 
+    pub fn folds(&self, view_id: ViewId) -> &FoldState {
+        &self.view_data(view_id).folds
+    }
+
+    pub fn folds_mut(&mut self, view_id: ViewId) -> &mut FoldState {
+        &mut self.view_data_mut(view_id).folds
+    }
+
     pub fn relative_path(&self) -> Option<&Path> {
         self.relative_path
             .get_or_init(|| {
@@ -2420,6 +2437,17 @@ impl Document {
 #[derive(Debug, Default)]
 pub struct ViewData {
     view_position: ViewPosition,
+    pub folds: FoldState,
+}
+
+impl ViewData {
+    pub fn folds(&self) -> &FoldState {
+        &self.folds
+    }
+
+    pub fn folds_mut(&mut self) -> &mut FoldState {
+        &mut self.folds
+    }
 }
 
 #[derive(Clone, Debug)]

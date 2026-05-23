@@ -309,6 +309,14 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "?" => rsearch,
             "n" => search_next,
             "N" => search_prev,
+
+            "f" => { "Fold"
+                "c" => fold_close,
+                "o" => fold_open,
+                "a" => fold_toggle,
+                "M" => fold_close_all,
+                "R" => fold_open_all,
+            },
         },
         "Z" => { "View" sticky=true
             "z" | "c" => align_view_center,

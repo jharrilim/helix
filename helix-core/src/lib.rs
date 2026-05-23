@@ -11,6 +11,7 @@ pub mod diagnostic;
 pub mod diff;
 pub mod doc_formatter;
 pub mod editor_config;
+pub mod fold;
 pub mod fuzzy;
 pub mod graphemes;
 pub mod history;
@@ -64,6 +65,10 @@ pub use position::{pos_at_visual_coords, visual_coords_at_pos};
 
 pub use selection::{Range, Selection};
 pub use smallvec::{smallvec, SmallVec};
+pub use fold::{
+    discover_fold_at_cursor, discover_folds, visible_line_byte_range, FoldQuery, FoldRange,
+    FoldState,
+};
 pub use syntax::Syntax;
 
 pub use completion::CompletionItem;

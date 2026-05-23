@@ -162,6 +162,9 @@ pub fn line_numbers<'doc>(
         .text()
         .char_to_line(doc.selection(view.id).primary().cursor(text));
 
+    let folds = doc.folds(view.id);
+    let fold_style = theme.get("ui.virtual.folded");
+
     let line_number = editor.config().line_number;
     let mode = editor.mode;
 
@@ -191,12 +194,17 @@ pub fn line_numbers<'doc>(
                 };
 
                 if first_visual_line {
-                    write!(out, "{:>1$}", display_num, width).unwrap();
+                    if folds.is_collapsed_header(line) {
+                        write!(out, "{:>1$}▾", display_num, width.saturating_sub(1)).unwrap();
+                        first_visual_line.then_some(style.patch(fold_style))
+                    } else {
+                        write!(out, "{:>1$}", display_num, width).unwrap();
+                        first_visual_line.then_some(style)
+                    }
                 } else {
                     write!(out, "{:>1$}", " ", width).unwrap();
+                    first_visual_line.then_some(style)
                 }
-
-                first_visual_line.then_some(style)
             }
         },
     )

@@ -6,6 +6,7 @@ use crate::{
     char_idx_at_visual_offset,
     chars::{categorize_char, char_is_line_ending, CharCategory},
     doc_formatter::TextFormat,
+    fold::char_idx_for_display,
     graphemes::{
         next_grapheme_boundary, nth_next_grapheme_boundary, nth_prev_grapheme_boundary,
         prev_grapheme_boundary,
@@ -113,28 +114,36 @@ pub fn move_vertically(
     annotations: &mut TextAnnotations,
 ) -> Range {
     annotations.clear_line_annotations();
-    let pos = range.cursor(slice);
+    let pos = char_idx_for_display(annotations.folds, slice, range.cursor(slice));
     let line_idx = slice.char_to_line(pos);
     let line_start = slice.line_to_char(line_idx);
 
     // Compute the current position's 2d coordinates.
     let visual_pos = visual_offset_from_block(slice, line_start, pos, text_fmt, annotations).0;
-    let (mut new_row, new_col) = range
-        .old_visual_position
-        .map_or((visual_pos.row as u32, visual_pos.col as u32), |pos| pos);
-    new_row = new_row.max(visual_pos.row as u32);
-    let line_idx = slice.char_to_line(pos);
-
-    // Compute the new position.
-    let mut new_line_idx = match dir {
-        Direction::Forward => line_idx.saturating_add(count),
-        Direction::Backward => line_idx.saturating_sub(count),
+    let folds_active = annotations.folds.is_some_and(|f| !f.is_empty());
+    let (new_row, new_col) = if folds_active {
+        // Stale `old_visual_position` counts hidden lines; use the fold-aware visual row.
+        (visual_pos.row as u32, visual_pos.col as u32)
+    } else {
+        let (mut new_row, new_col) = range
+            .old_visual_position
+            .map_or((visual_pos.row as u32, visual_pos.col as u32), |pos| pos);
+        new_row = new_row.max(visual_pos.row as u32);
+        (new_row, new_col)
     };
 
-    let line = if new_line_idx >= slice.len_lines() - 1 {
-        // there is no line terminator for the last line
-        // so the logic below is not necessary here
-        new_line_idx = slice.len_lines() - 1;
+    let max_line = slice.len_lines().saturating_sub(1);
+    let mut new_line_idx = if let Some(folds) = annotations.folds.filter(|f| !f.is_empty()) {
+        folds.move_visible_line(line_idx, dir, count, slice.len_lines())
+    } else {
+        match dir {
+            Direction::Forward => line_idx.saturating_add(count).min(max_line),
+            Direction::Backward => line_idx.saturating_sub(count),
+        }
+    };
+
+    let line = if new_line_idx >= max_line {
+        new_line_idx = max_line;
         slice
     } else {
         // char_idx_at_visual_block_offset returns a one-past-the-end index
@@ -144,7 +153,7 @@ pub fn move_vertically(
         slice.slice(..new_line_end)
     };
 
-    let new_line_start = line.line_to_char(new_line_idx);
+    let new_line_start = slice.line_to_char(new_line_idx);
 
     let (new_pos, _) = char_idx_at_visual_block_offset(
         line,
@@ -154,6 +163,7 @@ pub fn move_vertically(
         text_fmt,
         annotations,
     );
+    let new_pos = char_idx_for_display(annotations.folds, slice, new_pos);
 
     // Special-case to avoid moving to the end of the last non-empty line.
     if behaviour == Movement::Extend && slice.line(new_line_idx).len_chars() == 0 {

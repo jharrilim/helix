@@ -121,6 +121,12 @@ pub fn render_text(
                 // draw indent guides for the last line
                 renderer.draw_indent_guides(last_line_indent_level, last_line_pos.visual_line);
                 is_in_indent_area = true;
+                renderer.draw_fold_indicator(
+                    last_line_pos,
+                    last_line_end,
+                    text_annotations.folds,
+                    theme,
+                );
                 decorations.render_virtual_lines(renderer, last_line_pos, last_line_end)
             }
             last_line_pos = LinePos {
@@ -169,6 +175,12 @@ pub fn render_text(
     }
 
     renderer.draw_indent_guides(last_line_indent_level, last_line_pos.visual_line);
+    renderer.draw_fold_indicator(
+        last_line_pos,
+        last_line_end,
+        text_annotations.folds,
+        theme,
+    );
     decorations.render_virtual_lines(renderer, last_line_pos, last_line_end)
 }
 
@@ -311,6 +323,36 @@ impl<'a> TextRenderer<'a> {
     }
 
     /// Draws a single `grapheme` at the current render position with a specified `style`.
+    pub fn draw_fold_indicator(
+        &mut self,
+        line_pos: LinePos,
+        line_end_col: usize,
+        folds: Option<&helix_core::FoldState>,
+        theme: &Theme,
+    ) {
+        let Some(folds) = folds else {
+            return;
+        };
+        if !folds.is_collapsed_header(line_pos.doc_line) {
+            return;
+        }
+        let style = theme
+            .try_get("ui.virtual.folded")
+            .unwrap_or_else(|| theme.get("ui.virtual.whitespace"));
+        let col = line_end_col.saturating_sub(self.offset.col);
+        if line_pos.visual_line >= self.offset.row as u16
+            && line_pos.visual_line < self.viewport.height + self.offset.row as u16
+            && col < self.viewport.width as usize
+        {
+            self.surface.set_string(
+                self.viewport.x + col as u16,
+                self.viewport.y + line_pos.visual_line,
+                " …",
+                style,
+            );
+        }
+    }
+
     pub fn draw_grapheme(
         &mut self,
         grapheme: &FormattedGrapheme,

@@ -171,6 +171,7 @@ impl Default for TextFormat {
 
 #[derive(Debug)]
 pub struct DocumentFormatter<'t> {
+    text: RopeSlice<'t>,
     text_fmt: &'t TextFormat,
     annotations: &'t TextAnnotations<'t>,
 
@@ -212,11 +213,15 @@ impl<'t> DocumentFormatter<'t> {
         char_idx: usize,
     ) -> Self {
         // TODO divide long lines into blocks to avoid bad performance for long lines
-        let block_line_idx = text.char_to_line(char_idx.min(text.len_chars()));
+        let mut block_line_idx = text.char_to_line(char_idx.min(text.len_chars()));
+        if let Some(folds) = annotations.folds {
+            block_line_idx = folds.skip_to_visible(block_line_idx);
+        }
         let block_char_idx = text.line_to_char(block_line_idx);
         annotations.reset_pos(block_char_idx);
 
         DocumentFormatter {
+            text,
             text_fmt,
             annotations,
             visual_pos: Position { row: 0, col: 0 },
@@ -427,6 +432,31 @@ impl<'t> DocumentFormatter<'t> {
     pub fn next_visual_pos(&self) -> Position {
         self.visual_pos
     }
+
+    fn skip_hidden_lines(&mut self) {
+        let Some(folds) = self.annotations.folds else {
+            return;
+        };
+        while folds.is_line_hidden(self.line_pos) {
+            let Some(fold) = folds.collapsed().iter().find(|f| f.hides_line(self.line_pos)) else {
+                break;
+            };
+            let next_line = fold.end_line + 1;
+            if next_line >= self.text.len_lines() {
+                self.exhausted = true;
+                return;
+            }
+            self.line_pos = next_line;
+            self.char_pos = self.text.line_to_char(next_line);
+            self.graphemes = self.text.slice(self.char_pos..).graphemes();
+            self.peeked_grapheme = None;
+            self.word_buf.clear();
+            self.word_i = 0;
+            self.inline_annotation_graphemes = None;
+            self.indent_level = None;
+            self.annotations.reset_pos(self.char_pos);
+        }
+    }
 }
 
 impl<'t> Iterator for DocumentFormatter<'t> {
@@ -470,6 +500,7 @@ impl<'t> Iterator for DocumentFormatter<'t> {
             self.visual_pos.col = 0;
             if !grapheme.is_virtual() {
                 self.line_pos += 1;
+                self.skip_hidden_lines();
             }
         } else {
             self.visual_pos.col += grapheme.width();

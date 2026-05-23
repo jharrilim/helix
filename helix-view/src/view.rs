@@ -513,7 +513,7 @@ impl View {
             ));
         }
 
-        text_annotations
+        text_annotations.with_folds(Some(doc.folds(self.id)))
     }
 
     pub fn text_pos_at_screen_coords(

@@ -116,8 +116,14 @@ impl EditorView {
             decorations.add_decoration(line_decoration);
         }
 
-        let syntax_highlighter =
-            Self::doc_syntax_highlighter(doc, view_offset.anchor, inner.height, &loader);
+        let folds = doc.folds(view.id);
+        let syntax_highlighter = Self::doc_syntax_highlighter(
+            doc,
+            view_offset.anchor,
+            inner.height,
+            &loader,
+            Some(folds),
+        );
         let mut overlays = Vec::new();
 
         overlays.push(Self::overlay_syntax_highlights(
@@ -125,6 +131,7 @@ impl EditorView {
             view_offset.anchor,
             inner.height,
             &text_annotations,
+            Some(folds),
         ));
 
         if doc
@@ -132,9 +139,14 @@ impl EditorView {
             .and_then(|config| config.rainbow_brackets)
             .unwrap_or(config.rainbow_brackets)
         {
-            if let Some(overlay) =
-                Self::doc_rainbow_highlights(doc, view_offset.anchor, inner.height, theme, &loader)
-            {
+            if let Some(overlay) = Self::doc_rainbow_highlights(
+                doc,
+                view_offset.anchor,
+                inner.height,
+                theme,
+                &loader,
+                Some(folds),
+            ) {
                 overlays.push(overlay);
             }
         }
@@ -278,17 +290,11 @@ impl EditorView {
 
     fn viewport_byte_range(
         text: helix_core::RopeSlice,
-        row: usize,
+        anchor: usize,
         height: u16,
+        folds: Option<&helix_core::FoldState>,
     ) -> std::ops::Range<usize> {
-        // Calculate viewport byte ranges:
-        // Saturating subs to make it inclusive zero indexing.
-        let last_line = text.len_lines().saturating_sub(1);
-        let last_visible_line = (row + height as usize).saturating_sub(1).min(last_line);
-        let start = text.line_to_byte(row.min(last_line));
-        let end = text.line_to_byte(last_visible_line + 1);
-
-        start..end
+        helix_core::visible_line_byte_range(text, anchor, height as usize, folds)
     }
 
     /// Get the syntax highlighter for a document in a view represented by the first line
@@ -299,11 +305,11 @@ impl EditorView {
         anchor: usize,
         height: u16,
         loader: &'editor syntax::Loader,
+        folds: Option<&helix_core::FoldState>,
     ) -> Option<syntax::Highlighter<'editor>> {
         let syntax = doc.syntax()?;
         let text = doc.text().slice(..);
-        let row = text.char_to_line(anchor.min(text.len_chars()));
-        let range = Self::viewport_byte_range(text, row, height);
+        let range = Self::viewport_byte_range(text, anchor, height, folds);
         let range = range.start as u32..range.end as u32;
 
         let highlighter = syntax.highlighter(text, loader, range);
@@ -315,12 +321,11 @@ impl EditorView {
         anchor: usize,
         height: u16,
         text_annotations: &TextAnnotations,
+        folds: Option<&helix_core::FoldState>,
     ) -> OverlayHighlights {
         let text = doc.text().slice(..);
-        let row = text.char_to_line(anchor.min(text.len_chars()));
-
-        let mut range = Self::viewport_byte_range(text, row, height);
-        range = text.byte_to_char(range.start)..text.byte_to_char(range.end);
+        let range = Self::viewport_byte_range(text, anchor, height, folds);
+        let range = text.byte_to_char(range.start)..text.byte_to_char(range.end);
 
         text_annotations.collect_overlay_highlights(range)
     }
@@ -331,11 +336,11 @@ impl EditorView {
         height: u16,
         theme: &Theme,
         loader: &syntax::Loader,
+        folds: Option<&helix_core::FoldState>,
     ) -> Option<OverlayHighlights> {
         let syntax = doc.syntax()?;
         let text = doc.text().slice(..);
-        let row = text.char_to_line(anchor.min(text.len_chars()));
-        let visible_range = Self::viewport_byte_range(text, row, height);
+        let visible_range = Self::viewport_byte_range(text, anchor, height, folds);
         let start = syntax::child_for_byte_range(
             &syntax.tree().root_node(),
             visible_range.start as u32..visible_range.end as u32,

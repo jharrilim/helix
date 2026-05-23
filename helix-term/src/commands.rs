@@ -1,9 +1,11 @@
 pub(crate) mod dap;
+pub(crate) mod fold;
 pub(crate) mod lsp;
 pub(crate) mod syntax;
 pub(crate) mod typed;
 
 pub use dap::*;
+pub use fold::*;
 use futures_util::FutureExt;
 use helix_event::status;
 use helix_stdx::{
@@ -531,6 +533,11 @@ impl MappableCommand {
         select_prev_sibling, "Select previous sibling the in syntax tree",
         select_all_siblings, "Select all siblings of the current node",
         select_all_children, "Select all children of the current node",
+        fold_toggle, "Toggle code fold at cursor",
+        fold_open, "Open code fold at cursor",
+        fold_close, "Close code fold at cursor",
+        fold_open_all, "Open all code folds",
+        fold_close_all, "Close all code folds",
         jump_forward, "Jump forward on jumplist",
         jump_backward, "Jump backward on jumplist",
         save_selection, "Save current selection to jumplist",

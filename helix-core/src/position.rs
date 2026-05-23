@@ -9,11 +9,16 @@ use helix_stdx::rope::RopeSliceExt;
 use crate::{
     chars::char_is_line_ending,
     doc_formatter::{DocumentFormatter, TextFormat},
+    fold::char_idx_for_display,
     graphemes::{ensure_grapheme_boundary_prev, grapheme_width},
     line_ending::line_end_char_index,
     text_annotations::TextAnnotations,
     RopeSlice,
 };
+
+fn adjust_pos_for_folds(text: RopeSlice, pos: usize, annotations: &TextAnnotations) -> usize {
+    char_idx_for_display(annotations.folds, text, pos)
+}
 
 /// Represents a single point in a text buffer. Zero indexed.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -153,6 +158,8 @@ pub fn visual_offset_from_block(
     text_fmt: &TextFormat,
     annotations: &TextAnnotations,
 ) -> (Position, usize) {
+    let anchor = adjust_pos_for_folds(text, anchor, annotations);
+    let pos = adjust_pos_for_folds(text, pos, annotations);
     let mut last_pos = Position::default();
     let mut formatter =
         DocumentFormatter::new_at_prev_checkpoint(text, text_fmt, annotations, anchor);
@@ -195,6 +202,8 @@ pub fn visual_offset_from_anchor(
     annotations: &TextAnnotations,
     max_rows: usize,
 ) -> Result<(Position, usize), VisualOffsetError> {
+    let anchor = adjust_pos_for_folds(text, anchor, annotations);
+    let pos = adjust_pos_for_folds(text, pos, annotations);
     let mut formatter =
         DocumentFormatter::new_at_prev_checkpoint(text, text_fmt, annotations, anchor);
     let mut anchor_line = None;
@@ -426,17 +435,33 @@ pub fn char_idx_at_visual_block_offset(
             Ordering::Equal => {
                 if grapheme.visual_pos.col + grapheme.width() > column {
                     if !grapheme.is_virtual() {
-                        return (grapheme.char_idx, 0);
+                        return (
+                            char_idx_for_display(annotations.folds, text, grapheme.char_idx),
+                            0,
+                        );
                     } else if found_non_virtual_on_row {
-                        return (last_char_idx, 0);
+                        return (
+                            char_idx_for_display(annotations.folds, text, last_char_idx),
+                            0,
+                        );
                     }
                 } else if !grapheme.is_virtual() {
                     found_non_virtual_on_row = true;
                     last_char_idx = grapheme.char_idx;
                 }
             }
-            Ordering::Greater if found_non_virtual_on_row => return (last_char_idx, 0),
-            Ordering::Greater => return (last_char_idx, row - last_row),
+            Ordering::Greater if found_non_virtual_on_row => {
+                return (
+                    char_idx_for_display(annotations.folds, text, last_char_idx),
+                    0,
+                );
+            }
+            Ordering::Greater => {
+                return (
+                    char_idx_for_display(annotations.folds, text, last_char_idx),
+                    row - last_row,
+                );
+            }
             Ordering::Less => {
                 if !grapheme.is_virtual() {
                     last_row = grapheme.visual_pos.row;
@@ -446,7 +471,8 @@ pub fn char_idx_at_visual_block_offset(
         }
     }
 
-    (formatter.next_char_pos(), 0)
+    let char_idx = char_idx_for_display(annotations.folds, text, formatter.next_char_pos());
+    (char_idx, 0)
 }
 
 #[cfg(test)]
