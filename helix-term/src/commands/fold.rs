@@ -1,6 +1,4 @@
-use helix_core::{
-    discover_fold_at_cursor, discover_folds, syntax::Loader, FoldRange, FoldState,
-};
+use helix_core::{discover_fold_at_cursor, discover_folds, syntax::Loader, FoldRange, FoldState};
 use helix_view::{Document, ViewId};
 
 use super::Context;

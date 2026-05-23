@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "helix-acp",
   "helix-core",
   "helix-view",
   "helix-term",

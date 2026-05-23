@@ -1,5 +1,7 @@
+pub(crate) mod agent;
 pub(crate) mod dap;
 pub(crate) mod fold;
+pub use agent::*;
 pub(crate) mod lsp;
 pub(crate) mod syntax;
 pub(crate) mod typed;
@@ -538,6 +540,15 @@ impl MappableCommand {
         fold_close, "Close code fold at cursor",
         fold_open_all, "Open all code folds",
         fold_close_all, "Close all code folds",
+        agent_open, "Open agent panel",
+        agent_close, "Close agent panel",
+        agent_focus, "Focus agent panel",
+        agent_focus_editor, "Focus editor from agent panel",
+        agent_send, "Send agent prompt",
+        agent_stop, "Stop agent session",
+        agent_clear, "Clear agent transcript",
+        agent_history, "List and load agent sessions",
+        agent_mode, "Set or pick agent session mode",
         jump_forward, "Jump forward on jumplist",
         jump_backward, "Jump backward on jumplist",
         save_selection, "Save current selection to jumplist",
@@ -5892,6 +5903,11 @@ fn transpose_view(cx: &mut Context) {
 ///
 /// Maintain the current view (both the cursor's position and view in document).
 fn split(editor: &mut Editor, action: Action) {
+    if editor.tree.is_agent_panel(editor.tree.focus) {
+        editor.set_error("cannot split from the agent panel");
+        return;
+    }
+
     let (view, doc) = current!(editor);
     let id = doc.id();
     let selection = doc.selection(view.id).clone();
@@ -5924,6 +5940,11 @@ fn vsplit_new(cx: &mut Context) {
 }
 
 fn wclose(cx: &mut Context) {
+    if cx.editor.tree.is_agent_panel(cx.editor.tree.focus) {
+        cx.editor.close_agent_panel();
+        return;
+    }
+
     if cx.editor.tree.views().count() == 1 {
         if let Err(err) = typed::buffers_remaining_impl(cx.editor) {
             cx.editor.set_error(err.to_string());

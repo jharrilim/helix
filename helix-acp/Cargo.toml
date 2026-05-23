@@ -1,0 +1,29 @@
+[package]
+name = "helix-acp"
+description = "Agent Client Protocol (ACP) client for Helix"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+helix-core = { path = "../helix-core" }
+helix-stdx = { path = "../helix-stdx" }
+
+agent-client-protocol = "0.12.1"
+anyhow = "1.0"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "io-util", "io-std", "sync", "macros", "process"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+futures-util = { version = "0.3", features = ["std"], default-features = false }
+thiserror.workspace = true
+parking_lot.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

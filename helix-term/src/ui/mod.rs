@@ -1,3 +1,5 @@
+mod agent;
+pub mod agent_cursor;
 mod completion;
 mod document;
 pub(crate) mod editor;

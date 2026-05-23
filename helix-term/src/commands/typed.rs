@@ -119,6 +119,11 @@ fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow
     }
 
     cx.block_try_flush_writes()?;
+    if cx.editor.tree.is_agent_panel(cx.editor.tree.focus) {
+        cx.editor.close_agent_panel();
+        return Ok(());
+    }
+
     cx.editor.close(view!(cx.editor).id);
 
     Ok(())
@@ -130,6 +135,11 @@ fn force_quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> 
     }
 
     cx.block_try_flush_writes()?;
+    if cx.editor.tree.is_agent_panel(cx.editor.tree.focus) {
+        cx.editor.close_agent_panel();
+        return Ok(());
+    }
+
     cx.editor.close(view!(cx.editor).id);
 
     Ok(())
@@ -963,6 +973,8 @@ fn quit_all_impl(cx: &mut compositor::Context, force: bool) -> anyhow::Result<()
     if !force {
         buffers_remaining_impl(cx.editor)?;
     }
+
+    cx.editor.close_agent_panel();
 
     // close all views
     let views: Vec<_> = cx.editor.tree.views().map(|(view, _)| view.id).collect();
@@ -3991,7 +4003,66 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         fun: untrust_workspace,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
-    }
+    },
+    TypableCommand {
+        name: "agent-open",
+        aliases: &[],
+        doc: "Open the agent panel",
+        fun: typed_agent_open,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "agent-close",
+        aliases: &[],
+        doc: "Close the agent panel",
+        fun: typed_agent_close,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "agent-focus",
+        aliases: &[],
+        doc: "Focus the agent panel",
+        fun: typed_agent_focus,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "agent-send",
+        aliases: &[],
+        doc: "Send the current agent prompt",
+        fun: typed_agent_send,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "agent-stop",
+        aliases: &[],
+        doc: "Stop the agent session",
+        fun: typed_agent_stop,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "agent-history",
+        aliases: &[],
+        doc: "List and load agent sessions",
+        fun: typed_agent_history,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "agent-mode",
+        aliases: &[],
+        doc: "Set or pick the agent session mode",
+        fun: typed_agent_mode,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(1)),
+            ..Signature::DEFAULT
+        },
+    },
 ];
 
 pub static TYPABLE_COMMAND_MAP: Lazy<HashMap<&'static str, &'static TypableCommand>> =
@@ -4448,5 +4519,90 @@ fn untrust_workspace(
     }
 
     helix_loader::workspace_trust::WorkspaceTrust::load(false).untrust_workspace();
+    Ok(())
+}
+
+fn typed_agent_open(
+    cx: &mut compositor::Context,
+    _args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    crate::commands::agent::agent_open_editor(cx.editor, cx.jobs);
+    Ok(())
+}
+
+fn typed_agent_close(
+    cx: &mut compositor::Context,
+    _args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    crate::commands::agent::agent_close_editor(cx.editor);
+    Ok(())
+}
+
+fn typed_agent_focus(
+    cx: &mut compositor::Context,
+    _args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    crate::commands::agent::agent_focus_editor_panel(cx.editor, cx.jobs);
+    Ok(())
+}
+
+fn typed_agent_send(
+    cx: &mut compositor::Context,
+    _args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    crate::commands::agent::agent_send_editor(cx.editor, cx.jobs);
+    Ok(())
+}
+
+fn typed_agent_stop(
+    cx: &mut compositor::Context,
+    _args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    crate::commands::agent::agent_stop_editor(cx.editor);
+    Ok(())
+}
+
+fn typed_agent_history(
+    cx: &mut compositor::Context,
+    _args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    crate::commands::agent::agent_history_editor(cx.editor, cx.jobs);
+    Ok(())
+}
+
+fn typed_agent_mode(
+    cx: &mut compositor::Context,
+    args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let mode_id = args.first().map(|arg| arg.to_string());
+    crate::commands::agent::agent_mode_editor(cx.editor, mode_id);
     Ok(())
 }

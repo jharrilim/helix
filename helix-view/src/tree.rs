@@ -1,6 +1,13 @@
 use crate::{graphics::Rect, View, ViewId};
 use slotmap::SlotMap;
 
+/// Agent chat panel leaf in the split tree.
+#[derive(Debug)]
+pub struct AgentPanel {
+    pub id: ViewId,
+    pub area: Rect,
+}
+
 // the dimensions are recomputed on window resize/tree change.
 //
 #[derive(Debug)]
@@ -26,6 +33,7 @@ pub struct Node {
 #[derive(Debug)]
 pub enum Content {
     View(Box<View>),
+    AgentPanel(AgentPanel),
     Container(Box<Container>),
 }
 
@@ -41,6 +49,13 @@ impl Node {
         Self {
             parent: ViewId::default(),
             content: Content::View(Box::new(view)),
+        }
+    }
+
+    pub fn agent_panel(panel: AgentPanel) -> Self {
+        Self {
+            parent: ViewId::default(),
+            content: Content::AgentPanel(panel),
         }
     }
 }
@@ -214,6 +229,82 @@ impl Tree {
         node
     }
 
+    pub fn split_agent_panel(&mut self, layout: Layout) -> ViewId {
+        let focus = self.focus;
+        let parent = self.nodes[focus].parent;
+
+        let node = Node::agent_panel(AgentPanel {
+            id: ViewId::default(),
+            area: Rect::default(),
+        });
+        let node = self.nodes.insert(node);
+        if let Node {
+            content: Content::AgentPanel(panel),
+            ..
+        } = &mut self.nodes[node]
+        {
+            panel.id = node;
+        }
+
+        let container = match &mut self.nodes[parent] {
+            Node {
+                content: Content::Container(container),
+                ..
+            } => container,
+            _ => unreachable!(),
+        };
+        if container.layout == layout {
+            let pos = if container.children.is_empty() {
+                0
+            } else {
+                container
+                    .children
+                    .iter()
+                    .position(|&child| child == focus)
+                    .unwrap()
+                    + 1
+            };
+            container.children.insert(pos, node);
+            self.nodes[node].parent = parent;
+        } else {
+            let mut split = Node::container(layout);
+            split.parent = parent;
+            let split = self.nodes.insert(split);
+
+            let container = match &mut self.nodes[split] {
+                Node {
+                    content: Content::Container(container),
+                    ..
+                } => container,
+                _ => unreachable!(),
+            };
+            container.children.push(focus);
+            container.children.push(node);
+            self.nodes[focus].parent = split;
+            self.nodes[node].parent = split;
+
+            let container = match &mut self.nodes[parent] {
+                Node {
+                    content: Content::Container(container),
+                    ..
+                } => container,
+                _ => unreachable!(),
+            };
+
+            let pos = container
+                .children
+                .iter()
+                .position(|&child| child == focus)
+                .unwrap();
+
+            container.children[pos] = split;
+        }
+
+        self.focus = node;
+        self.recalculate();
+        node
+    }
+
     /// Get a mutable reference to a [Container] by index.
     /// # Panics
     /// Panics if `index` is not in self.nodes, or if the node's content is not a [Content::Container].
@@ -291,6 +382,47 @@ impl Tree {
                 } => Some((view.as_mut(), focus == key)),
                 _ => None,
             })
+    }
+
+    pub fn is_agent_panel(&self, index: ViewId) -> bool {
+        matches!(
+            self.nodes.get(index),
+            Some(Node {
+                content: Content::AgentPanel(_),
+                ..
+            })
+        )
+    }
+
+    pub fn agent_panel(&self, index: ViewId) -> Option<&AgentPanel> {
+        match self.nodes.get(index) {
+            Some(Node {
+                content: Content::AgentPanel(panel),
+                ..
+            }) => Some(panel),
+            _ => None,
+        }
+    }
+
+    pub fn agent_panel_mut(&mut self, index: ViewId) -> Option<&mut AgentPanel> {
+        match self.nodes.get_mut(index) {
+            Some(Node {
+                content: Content::AgentPanel(panel),
+                ..
+            }) => Some(panel),
+            _ => None,
+        }
+    }
+
+    pub fn agent_panels(&self) -> impl Iterator<Item = (&AgentPanel, bool)> {
+        let focus = self.focus;
+        self.nodes.iter().filter_map(move |(key, node)| match node {
+            Node {
+                content: Content::AgentPanel(panel),
+                ..
+            } => Some((panel, focus == key)),
+            _ => None,
+        })
     }
 
     /// Get reference to a [View] by index.
@@ -372,9 +504,11 @@ impl Tree {
 
             match &mut node.content {
                 Content::View(view) => {
-                    // debug!!("setting view area {:?}", area);
                     view.area = area;
-                } // TODO: call f()
+                }
+                Content::AgentPanel(panel) => {
+                    panel.area = area;
+                }
                 Content::Container(container) => {
                     // debug!!("setting container area {:?}", area);
                     container.area = area;
@@ -445,6 +579,10 @@ impl Tree {
         Traverse::new(self)
     }
 
+    pub fn leaves(&self) -> LeafTraverse<'_> {
+        LeafTraverse::new(self)
+    }
+
     // Finds the split in the given direction if it exists
     pub fn find_split_in_direction(&self, id: ViewId, direction: Direction) -> Option<ViewId> {
         let parent = self.nodes[id].parent;
@@ -455,7 +593,7 @@ impl Tree {
         // Parent must always be a container
         let parent_container = match &self.nodes[parent].content {
             Content::Container(container) => container,
-            Content::View(_) => unreachable!(),
+            Content::View(_) | Content::AgentPanel(_) => unreachable!(),
         };
 
         match (direction, parent_container.layout) {
@@ -511,6 +649,7 @@ impl Tree {
         };
         let (current_x, current_y) = match &self.nodes[self.focus].content {
             Content::View(current_view) => (current_view.area.left(), current_view.area.top()),
+            Content::AgentPanel(panel) => (panel.area.left(), panel.area.top()),
             Content::Container(_) => unreachable!(),
         };
 
@@ -524,6 +663,7 @@ impl Tree {
                     child_id = *container.children.iter().min_by_key(|id| {
                         let x = match &self.nodes[**id].content {
                             Content::View(view) => view.area.left(),
+                            Content::AgentPanel(panel) => panel.area.left(),
                             Content::Container(container) => container.area.left(),
                         };
                         (current_x as i16 - x as i16).abs()
@@ -535,6 +675,7 @@ impl Tree {
                     child_id = *container.children.iter().min_by_key(|id| {
                         let y = match &self.nodes[**id].content {
                             Content::View(view) => view.area.top(),
+                            Content::AgentPanel(panel) => panel.area.top(),
                             Content::Container(container) => container.area.top(),
                         };
                         (current_y as i16 - y as i16).abs()
@@ -546,42 +687,23 @@ impl Tree {
     }
 
     pub fn prev(&self) -> ViewId {
-        // This function is very dumb, but that's because we don't store any parent links.
-        // (we'd be able to go parent.prev_sibling() recursively until we find something)
-        // For now that's okay though, since it's unlikely you'll be able to open a large enough
-        // number of splits to notice.
-
-        let mut views = self
-            .traverse()
-            .rev()
-            .skip_while(|&(id, _view)| id != self.focus)
-            .skip(1); // Skip focused value
-        if let Some((id, _)) = views.next() {
-            id
-        } else {
-            // extremely crude, take the last item
-            let (key, _) = self.traverse().next_back().unwrap();
-            key
+        let leaves: Vec<ViewId> = self.leaves().map(|(id, _)| id).collect();
+        if let Some(pos) = leaves.iter().position(|&id| id == self.focus) {
+            if pos > 0 {
+                return leaves[pos - 1];
+            }
         }
+        *leaves.last().unwrap_or(&self.focus)
     }
 
     pub fn next(&self) -> ViewId {
-        // This function is very dumb, but that's because we don't store any parent links.
-        // (we'd be able to go parent.next_sibling() recursively until we find something)
-        // For now that's okay though, since it's unlikely you'll be able to open a large enough
-        // number of splits to notice.
-
-        let mut views = self
-            .traverse()
-            .skip_while(|&(id, _view)| id != self.focus)
-            .skip(1); // Skip focused value
-        if let Some((id, _)) = views.next() {
-            id
-        } else {
-            // extremely crude, take the first item again
-            let (key, _) = self.traverse().next().unwrap();
-            key
+        let leaves: Vec<ViewId> = self.leaves().map(|(id, _)| id).collect();
+        if let Some(pos) = leaves.iter().position(|&id| id == self.focus) {
+            if pos + 1 < leaves.len() {
+                return leaves[pos + 1];
+            }
         }
+        *leaves.first().unwrap_or(&self.focus)
     }
 
     pub fn transpose(&mut self) {
@@ -697,6 +819,7 @@ impl<'a> Iterator for Traverse<'a> {
 
             match &node.content {
                 Content::View(view) => return Some((key, view)),
+                Content::AgentPanel(_) => continue,
                 Content::Container(container) => {
                     self.stack.extend(container.children.iter().rev());
                 }
@@ -714,6 +837,53 @@ impl DoubleEndedIterator for Traverse<'_> {
 
             match &node.content {
                 Content::View(view) => return Some((key, view)),
+                Content::AgentPanel(_) => continue,
+                Content::Container(container) => {
+                    self.stack.extend(container.children.iter());
+                }
+            }
+        }
+    }
+}
+
+pub struct LeafTraverse<'a> {
+    tree: &'a Tree,
+    stack: Vec<ViewId>,
+}
+
+impl<'a> LeafTraverse<'a> {
+    fn new(tree: &'a Tree) -> Self {
+        Self {
+            tree,
+            stack: vec![tree.root],
+        }
+    }
+}
+
+impl<'a> Iterator for LeafTraverse<'a> {
+    type Item = (ViewId, ());
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let key = self.stack.pop()?;
+            let node = &self.tree.nodes[key];
+            match &node.content {
+                Content::View(_) | Content::AgentPanel(_) => return Some((key, ())),
+                Content::Container(container) => {
+                    self.stack.extend(container.children.iter().rev());
+                }
+            }
+        }
+    }
+}
+
+impl DoubleEndedIterator for LeafTraverse<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        loop {
+            let key = self.stack.pop()?;
+            let node = &self.tree.nodes[key];
+            match &node.content {
+                Content::View(_) | Content::AgentPanel(_) => return Some((key, ())),
                 Content::Container(container) => {
                     self.stack.extend(container.children.iter());
                 }

@@ -292,6 +292,16 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "C" => toggle_block_comments,
             "A-c" => toggle_line_comments,
             "?" => command_palette,
+            "A" => { "Agent"
+                "a" => agent_open,
+                "A" => agent_focus,
+                "c" => agent_close,
+                "h" => agent_history,
+                "s" => agent_send,
+                "S" => agent_stop,
+                "C" => agent_clear,
+                "m" => agent_mode,
+            },
         },
         "z" => { "View"
             "z" | "c" => align_view_center,

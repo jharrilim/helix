@@ -15,6 +15,7 @@ mod test {
         Ok(())
     }
 
+    mod agent;
     mod auto_indent;
     mod auto_pairs;
     mod command_line;

@@ -1,6 +1,7 @@
 use crate::{
     commands::{self, OnKeyCallback, OnKeyCallbackKind},
     compositor::{Component, Context, Event, EventResult},
+    ctrl,
     events::{OnModeSwitch, PostCommand},
     handlers::completion::CompletionItem,
     key,
@@ -39,6 +40,7 @@ pub struct EditorView {
     pub keymaps: Keymaps,
     on_next_key: Option<(OnKeyCallback, OnKeyCallbackKind)>,
     pseudo_pending: Vec<KeyEvent>,
+    agent_window_pending: bool,
     pub(crate) last_insert: (commands::MappableCommand, Vec<InsertEvent>),
     pub(crate) completion: Option<Completion>,
     spinners: ProgressSpinners,
@@ -63,6 +65,7 @@ impl EditorView {
             keymaps,
             on_next_key: None,
             pseudo_pending: Vec::new(),
+            agent_window_pending: false,
             last_insert: (commands::MappableCommand::normal_mode, Vec::new()),
             completion: None,
             spinners: ProgressSpinners::default(),
@@ -1097,6 +1100,38 @@ impl EditorView {
         }
     }
 
+    fn handle_agent_normal_key(&mut self, cxt: &mut commands::Context, key: KeyEvent) -> bool {
+        if self.agent_window_pending {
+            self.agent_window_pending = false;
+            match key {
+                key!('w') | ctrl!('w') => cxt.editor.focus_next(),
+                key!('h') | ctrl!('h') | key!(Left) => cxt
+                    .editor
+                    .focus_direction(helix_view::tree::Direction::Left),
+                key!('j') | ctrl!('j') | key!(Down) => cxt
+                    .editor
+                    .focus_direction(helix_view::tree::Direction::Down),
+                key!('k') | ctrl!('k') | key!(Up) => {
+                    cxt.editor.focus_direction(helix_view::tree::Direction::Up)
+                }
+                key!('l') | ctrl!('l') | key!(Right) => cxt
+                    .editor
+                    .focus_direction(helix_view::tree::Direction::Right),
+                key!('q') | ctrl!('q') => cxt.editor.close_agent_panel(),
+                _ => cxt.editor.set_error("unsupported agent window command"),
+            }
+            return true;
+        }
+
+        if key == ctrl!('w') {
+            self.agent_window_pending = true;
+            cxt.editor.set_status("agent window command");
+            return true;
+        }
+
+        crate::ui::agent::handle_normal_key(cxt.editor, key)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn set_completion(
         &mut self,
@@ -1190,6 +1225,18 @@ impl EditorView {
         event: &MouseEvent,
         cxt: &mut commands::Context,
     ) -> EventResult {
+        if super::agent::panel_at_coords(cxt.editor, event.row, event.column).is_some() {
+            if !matches!(event.kind, MouseEventKind::Moved) {
+                return super::agent::handle_mouse(cxt.editor, *event);
+            }
+            return EventResult::Ignored(None);
+        }
+        if cxt.editor.tree.is_agent_panel(cxt.editor.tree.focus)
+            && !matches!(event.kind, MouseEventKind::Moved)
+        {
+            return super::agent::handle_mouse(cxt.editor, *event);
+        }
+
         if event.kind != MouseEventKind::Moved {
             self.handle_non_key_input(cxt)
         }
@@ -1314,7 +1361,9 @@ impl EditorView {
                 commands::scroll(cxt, offset, direction, false);
 
                 cxt.editor.tree.focus = current_view;
-                cxt.editor.ensure_cursor_in_view(current_view);
+                if !cxt.editor.tree.is_agent_panel(current_view) {
+                    cxt.editor.ensure_cursor_in_view(current_view);
+                }
 
                 EventResult::Consumed(None)
             }
@@ -1450,6 +1499,16 @@ impl Component for EditorView {
 
         match event {
             Event::Paste(contents) => {
+                if cx.editor.agent_panel_focused() {
+                    cx.editor.agent.clear_transcript_selection();
+                    cx.editor
+                        .agent
+                        .input
+                        .insert_str(cx.editor.agent.input_cursor, contents);
+                    cx.editor.agent.input_cursor += contents.len();
+                    return EventResult::Consumed(None);
+                }
+
                 self.handle_non_key_input(&mut cx);
                 cx.count = cx.editor.count;
                 commands::paste_bracketed_value(&mut cx, contents.clone());
@@ -1480,7 +1539,30 @@ impl Component for EditorView {
                 // clear status
                 cx.editor.status_msg = None;
 
-                let mode = cx.editor.mode();
+                let agent_leaf_focused = cx.editor.tree.is_agent_panel(cx.editor.tree.focus);
+                if cx.editor.agent_panel_focused() {
+                    if crate::ui::agent::handle_key(cx.editor, key) {
+                        return EventResult::Consumed(None);
+                    }
+                }
+
+                if agent_leaf_focused && !cx.editor.agent_panel_focused() {
+                    if self.handle_agent_normal_key(&mut cx, key) {
+                        return EventResult::Consumed(None);
+                    }
+
+                    let command_key =
+                        matches!(key, key!(':') | key!(' ')) || !self.keymaps.pending().is_empty();
+                    if !command_key {
+                        return EventResult::Consumed(None);
+                    }
+                }
+
+                let mode = if agent_leaf_focused {
+                    Mode::Normal
+                } else {
+                    cx.editor.mode()
+                };
 
                 if !self.on_next_key(OnKeyCallbackKind::PseudoPending, &mut cx, key) {
                     match mode {
@@ -1551,6 +1633,21 @@ impl Component for EditorView {
                 // on the next loop cycle the Application will then terminate.
                 if cx.editor.should_close() {
                     return EventResult::Ignored(None);
+                }
+
+                if cx.editor.tree.is_agent_panel(cx.editor.tree.focus) {
+                    let callback = if callbacks.is_empty() {
+                        None
+                    } else {
+                        let callback: crate::compositor::Callback =
+                            Box::new(move |compositor, cx| {
+                                for callback in callbacks {
+                                    callback(compositor, cx)
+                                }
+                            });
+                        Some(callback)
+                    };
+                    return EventResult::Consumed(callback);
                 }
 
                 let config = cx.editor.config();
@@ -1632,6 +1729,10 @@ impl Component for EditorView {
             self.render_view(cx.editor, doc, view, area, surface, is_focused);
         }
 
+        for (panel, is_focused) in cx.editor.tree.agent_panels() {
+            crate::ui::agent::render(cx.editor, panel.area, surface, is_focused);
+        }
+
         if config.auto_info {
             if let Some(mut info) = cx.editor.autoinfo.take() {
                 info.render(area, surface, cx);
@@ -1703,7 +1804,11 @@ impl Component for EditorView {
         }
     }
 
-    fn cursor(&self, _area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
+    fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
+        if editor.agent_panel_focused() {
+            return crate::ui::agent::cursor(editor, area);
+        }
+
         match editor.cursor() {
             // all block cursors are drawn manually
             (pos, CursorKind::Block) => {

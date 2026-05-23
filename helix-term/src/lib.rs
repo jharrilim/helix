@@ -12,6 +12,8 @@ pub mod job;
 pub mod keymap;
 pub mod ui;
 
+mod agent;
+
 #[cfg(not(windows))]
 use std::env::var_os;
 
@@ -19,6 +21,9 @@ use std::path::Path;
 
 use futures_util::Future;
 mod handlers;
+
+#[cfg(feature = "integration")]
+pub use handlers::agent::apply_test_agent_event;
 
 use ignore::DirEntry;
 use url::Url;

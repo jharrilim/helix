@@ -175,12 +175,7 @@ pub fn render_text(
     }
 
     renderer.draw_indent_guides(last_line_indent_level, last_line_pos.visual_line);
-    renderer.draw_fold_indicator(
-        last_line_pos,
-        last_line_end,
-        text_annotations.folds,
-        theme,
-    );
+    renderer.draw_fold_indicator(last_line_pos, last_line_end, text_annotations.folds, theme);
     decorations.render_virtual_lines(renderer, last_line_pos, last_line_end)
 }
 

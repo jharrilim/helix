@@ -63,12 +63,12 @@ pub use position::{
 #[allow(deprecated)]
 pub use position::{pos_at_visual_coords, visual_coords_at_pos};
 
-pub use selection::{Range, Selection};
-pub use smallvec::{smallvec, SmallVec};
 pub use fold::{
     discover_fold_at_cursor, discover_folds, visible_line_byte_range, FoldQuery, FoldRange,
     FoldState,
 };
+pub use selection::{Range, Selection};
+pub use smallvec::{smallvec, SmallVec};
 pub use syntax::Syntax;
 
 pub use completion::CompletionItem;

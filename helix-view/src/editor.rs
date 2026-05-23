@@ -434,6 +434,9 @@ pub struct Config {
     pub buffer_picker: BufferPickerConfig,
     /// Whether to implicitly trust every workspace or not
     pub insecure: bool,
+    /// ACP agent integration settings.
+    #[serde(default)]
+    pub agent: crate::agent::AgentSettings,
 }
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Clone, Copy)]
@@ -1157,6 +1160,7 @@ impl Default for Config {
             kitty_keyboard_protocol: Default::default(),
             buffer_picker: BufferPickerConfig::default(),
             insecure: false,
+            agent: crate::agent::AgentSettings::default(),
         }
     }
 }
@@ -1259,6 +1263,7 @@ pub struct Editor {
 
     pub mouse_down_range: Option<Range>,
     pub cursor_cache: CursorCache,
+    pub agent: crate::agent::AgentState,
 }
 
 pub type Motion = Box<dyn Fn(&mut Editor)>;
@@ -1381,6 +1386,7 @@ impl Editor {
             handlers,
             mouse_down_range: None,
             cursor_cache: CursorCache::default(),
+            agent: crate::agent::AgentState::new(),
             dir_stack: VecDeque::with_capacity(DIR_STACK_CAP),
         }
     }
@@ -2102,10 +2108,23 @@ impl Editor {
             return;
         }
 
+        if self.tree.is_agent_panel(view_id) {
+            if !self.tree.is_agent_panel(self.tree.focus) {
+                self.enter_normal_mode();
+                let (view, doc) = current!(self);
+                doc.append_changes_to_history(view);
+            }
+            self.tree.focus = view_id;
+            self.agent.focus = crate::agent::AgentFocus::Normal;
+            return;
+        }
+
         // Reset mode to normal and ensure any pending changes are committed in the old document.
         self.enter_normal_mode();
-        let (view, doc) = current!(self);
-        doc.append_changes_to_history(view);
+        if !self.tree.is_agent_panel(self.tree.focus) {
+            let (view, doc) = current!(self);
+            doc.append_changes_to_history(view);
+        }
         self.ensure_cursor_in_view(view_id);
         // Update jumplist selections with new document changes.
         for (view, _focused) in self.tree.views_mut() {
@@ -2113,14 +2132,16 @@ impl Editor {
             view.sync_changes(doc);
         }
 
-        let prev_id = std::mem::replace(&mut self.tree.focus, view_id);
-        doc_mut!(self).mark_as_focused();
+        let prev_id = self.tree.focus;
+        let focus_lost = self.tree.try_get(prev_id).map(|view| view.doc);
+        self.tree.focus = view_id;
+        if let Some(doc) = self.document_mut(self.tree.get(view_id).doc) {
+            doc.mark_as_focused();
+        }
 
-        let focus_lost = self.tree.get(prev_id).doc;
-        dispatch(DocumentFocusLost {
-            editor: self,
-            doc: focus_lost,
-        });
+        if let Some(doc) = focus_lost {
+            dispatch(DocumentFocusLost { editor: self, doc });
+        }
     }
 
     pub fn focus_next(&mut self) {
@@ -2151,8 +2172,10 @@ impl Editor {
     }
 
     pub fn ensure_cursor_in_view(&mut self, id: ViewId) {
+        let Some(view) = self.tree.try_get(id) else {
+            return;
+        };
         let config = self.config();
-        let view = self.tree.get(id);
         let doc = doc_mut!(self, &view.doc);
         view.ensure_cursor_in_view(doc, config.scrolloff)
     }
@@ -2243,6 +2266,10 @@ impl Editor {
     /// Gets the primary cursor position in screen coordinates,
     /// or `None` if the primary cursor is not visible on screen.
     pub fn cursor(&self) -> (Option<Position>, CursorKind) {
+        if self.tree.is_agent_panel(self.tree.focus) {
+            return (None, CursorKind::Hidden);
+        }
+
         let config = self.config();
         let (view, doc) = current_ref!(self);
         if let Some(mut pos) = self.cursor_cache.get(view, doc) {
@@ -2354,6 +2381,11 @@ impl Editor {
         }
 
         self.mode = Mode::Normal;
+
+        if self.tree.is_agent_panel(self.tree.focus) {
+            return;
+        }
+
         let (view, doc) = current!(self);
 
         try_restore_indent(doc, view);
@@ -2448,6 +2480,68 @@ impl Editor {
         let (view, doc) = current!(self);
         doc.set_selection(view_id, selection);
         view.ensure_cursor_in_view_center(doc, self.config.load().scrolloff);
+    }
+
+    pub fn agent_settings(&self) -> crate::agent::AgentSettings {
+        self.config.load().agent.clone()
+    }
+
+    pub fn open_agent_panel(&mut self) {
+        if let Some(panel_id) = self.agent.panel_id {
+            if !self.tree.is_agent_panel(self.tree.focus) {
+                self.enter_normal_mode();
+                let (view, doc) = current!(self);
+                doc.append_changes_to_history(view);
+            }
+            self.tree.focus = panel_id;
+            self.agent.focus = crate::agent::AgentFocus::Normal;
+            return;
+        }
+
+        let panel_id = self.tree.split_agent_panel(crate::tree::Layout::Vertical);
+        self.agent.panel_id = Some(panel_id);
+        self.agent.focus = crate::agent::AgentFocus::Normal;
+        self.tree.focus = panel_id;
+        self._refresh();
+    }
+
+    pub fn close_agent_panel(&mut self) {
+        let Some(panel_id) = self.agent.panel_id.take() else {
+            return;
+        };
+        if self.tree.focus == panel_id {
+            self.tree.focus = self.tree.prev();
+        }
+        if self.tree.contains(panel_id) {
+            self.tree.remove(panel_id);
+        }
+        self.agent.focus = crate::agent::AgentFocus::Normal;
+        self._refresh();
+    }
+
+    pub fn focus_agent_panel(&mut self) {
+        if let Some(panel_id) = self.agent.panel_id {
+            if !self.tree.is_agent_panel(self.tree.focus) {
+                self.enter_normal_mode();
+                let (view, doc) = current!(self);
+                doc.append_changes_to_history(view);
+            }
+            self.tree.focus = panel_id;
+            self.agent.focus = crate::agent::AgentFocus::Normal;
+        }
+    }
+
+    pub fn focus_editor_from_agent(&mut self) {
+        self.agent.focus = crate::agent::AgentFocus::Normal;
+        if self.tree.is_agent_panel(self.tree.focus) {
+            self.tree.focus = self.tree.prev();
+        }
+    }
+
+    pub fn agent_panel_focused(&self) -> bool {
+        self.agent.panel_id.is_some_and(|id| {
+            self.tree.focus == id && self.agent.focus == crate::agent::AgentFocus::Insert
+        })
     }
 }
 

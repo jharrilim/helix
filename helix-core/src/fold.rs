@@ -1,10 +1,7 @@
 //! Code folding: fold ranges from tree-sitter and per-view collapsed state.
 
 use helix_stdx::rope::RopeSliceExt as _;
-use tree_house::{
-    query_iter::QueryIterEvent,
-    tree_sitter::Query,
-};
+use tree_house::{query_iter::QueryIterEvent, tree_sitter::Query};
 
 use crate::{syntax::Syntax, RopeSlice};
 
@@ -234,9 +231,8 @@ impl FoldState {
     }
 
     fn normalize(&mut self) {
-        self.collapsed.sort_by(|a, b| {
-            (a.start_line, a.end_line).cmp(&(b.start_line, b.end_line))
-        });
+        self.collapsed
+            .sort_by(|a, b| (a.start_line, a.end_line).cmp(&(b.start_line, b.end_line)));
         self.collapsed.dedup();
     }
 }
@@ -334,7 +330,10 @@ pub fn discover_fold_at_cursor(
 }
 
 /// Returns the inclusive line range affected by a changeset (in the document before the edit).
-pub fn changed_line_range(old_text: RopeSlice, changes: &crate::ChangeSet) -> Option<(usize, usize)> {
+pub fn changed_line_range(
+    old_text: RopeSlice,
+    changes: &crate::ChangeSet,
+) -> Option<(usize, usize)> {
     use crate::Operation::*;
 
     let mut old_pos = 0;
@@ -368,11 +367,7 @@ pub fn changed_line_range(old_text: RopeSlice, changes: &crate::ChangeSet) -> Op
 }
 
 /// Map a character index inside hidden folded lines to the end of the visible header line.
-pub fn char_idx_for_display(
-    folds: Option<&FoldState>,
-    text: RopeSlice,
-    char_idx: usize,
-) -> usize {
+pub fn char_idx_for_display(folds: Option<&FoldState>, text: RopeSlice, char_idx: usize) -> usize {
     let Some(folds) = folds else {
         return char_idx;
     };

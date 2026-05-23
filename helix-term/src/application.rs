@@ -147,6 +147,9 @@ impl Application {
         compositor.push(editor_view);
 
         let jobs = Jobs::new();
+        crate::agent::init(std::sync::Arc::new(std::sync::Mutex::new(
+            handlers::agent::AgentController::default(),
+        )));
 
         if args.load_tutor {
             let path = helix_loader::runtime_file(Path::new("tutor"));
@@ -265,6 +268,34 @@ impl Application {
         Ok(app)
     }
 
+    #[cfg(feature = "integration")]
+    /// Renders a single frame for integration tests.
+    pub async fn render_frame(&mut self) {
+        self.render().await;
+    }
+
+    #[cfg(feature = "integration")]
+    /// Returns the integration [`TestBackend`] buffer as plain text for assertions.
+    pub fn test_buffer_string(&self) -> String {
+        use tui::buffer::Buffer;
+
+        fn buffer_to_plain(buffer: &Buffer) -> String {
+            let width = buffer.area.width as usize;
+            let mut out = String::new();
+            for cells in buffer.content.chunks(width) {
+                let mut line = String::new();
+                for cell in cells {
+                    line.push_str(&cell.symbol);
+                }
+                out.push_str(line.trim_end());
+                out.push('\n');
+            }
+            out
+        }
+
+        buffer_to_plain(self.terminal.backend().buffer())
+    }
+
     async fn render(&mut self) {
         if self.compositor.full_redraw {
             self.terminal.clear().expect("Cannot clear the terminal");
@@ -319,6 +350,8 @@ impl Application {
             if self.editor.should_close() {
                 return false;
             }
+
+            crate::agent::with_controller(|controller| controller.poll(&mut self.editor));
 
             use futures_util::StreamExt;
 
@@ -1333,6 +1366,8 @@ impl Application {
             log::error!("Error executing job: {}", err);
             errs.push(err);
         };
+
+        crate::agent::with_controller(|controller| controller.shutdown());
 
         if let Err(err) = self.editor.flush_writes().await {
             log::error!("Error writing: {}", err);

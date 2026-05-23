@@ -438,7 +438,11 @@ impl<'t> DocumentFormatter<'t> {
             return;
         };
         while folds.is_line_hidden(self.line_pos) {
-            let Some(fold) = folds.collapsed().iter().find(|f| f.hides_line(self.line_pos)) else {
+            let Some(fold) = folds
+                .collapsed()
+                .iter()
+                .find(|f| f.hides_line(self.line_pos))
+            else {
                 break;
             };
             let next_line = fold.end_line + 1;
