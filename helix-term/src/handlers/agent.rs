@@ -1,15 +1,24 @@
 //! ACP agent runtime integration and buffer-aware filesystem handlers.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, SyncSender};
+use std::sync::Arc;
 
 use helix_acp::{
     AgentCommand, AgentConfig, AgentEvent, AgentMessage, AgentRuntime, AgentRuntimeHandle,
-    FsReadFn, FsReadResult, FsWriteFn, FsWriteRequest, FsWriteResult,
+    FsReadFn, FsReadResult, FsWriteFn, FsWriteRequest, FsWriteResult, TerminalCreateFn,
+    TerminalCreateRequest, TerminalExitResult, TerminalKillFn, TerminalOutputFn,
+    TerminalOutputSnapshot, TerminalReleaseFn, TerminalWaitExitFn, truncate_output,
 };
 use helix_core::{diff, Rope};
+use helix_pty::{TerminalCommand, TerminalId};
 use helix_view::{
-    agent::{AgentCursorRequest, AgentModeMeta, AgentPermissionOption, AgentPendingPermission, AgentSessionMeta, AgentTranscriptEntry},
+    agent::{
+        AgentBlockKind, AgentCursorRequest, AgentModeMeta, AgentPermissionOption,
+        AgentPendingPermission, AgentSessionMeta,
+    },
     Editor, View, ViewId,
 };
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -77,13 +86,357 @@ impl FsBridge {
     }
 }
 
-use std::sync::Arc;
+static NEXT_AGENT_TERMINAL_ID: AtomicU64 = AtomicU64::new(0);
+
+/// Bridges ACP terminal callbacks to the main thread and PTY runtime.
+pub struct TerminalBridge {
+    create_requests: mpsc::Receiver<(TerminalCreateRequest, SyncSender<Result<String, String>>)>,
+    output_requests: mpsc::Receiver<(String, SyncSender<TerminalOutputSnapshot>)>,
+    wait_requests: mpsc::Receiver<(String, SyncSender<Result<TerminalExitResult, String>>)>,
+    kill_requests: mpsc::Receiver<(String, SyncSender<Result<(), String>>)>,
+    release_requests: mpsc::Receiver<(String, SyncSender<Result<(), String>>)>,
+    exit_results: HashMap<String, TerminalExitResult>,
+    exit_waiters: HashMap<String, Vec<SyncSender<Result<TerminalExitResult, String>>>>,
+}
+
+impl TerminalBridge {
+    fn new() -> (
+        Self,
+        TerminalCreateFn,
+        TerminalOutputFn,
+        TerminalWaitExitFn,
+        TerminalKillFn,
+        TerminalReleaseFn,
+    ) {
+        let (create_tx, create_rx) = mpsc::channel();
+        let (output_tx, output_rx) = mpsc::channel();
+        let (wait_tx, wait_rx) = mpsc::channel();
+        let (kill_tx, kill_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+
+        let create_fn: TerminalCreateFn = Arc::new({
+            let create_tx = create_tx.clone();
+            move |request| {
+                let (resp_tx, resp_rx) = mpsc::sync_channel(1);
+                if create_tx.send((request, resp_tx)).is_err() {
+                    return Err("agent terminal bridge closed".into());
+                }
+                helix_event::request_redraw();
+                resp_rx
+                    .recv()
+                    .unwrap_or_else(|_| Err("agent terminal bridge closed".into()))
+            }
+        });
+
+        let output_fn: TerminalOutputFn = Arc::new({
+            let output_tx = output_tx.clone();
+            move |terminal_id| {
+                let (resp_tx, resp_rx) = mpsc::sync_channel(1);
+                if output_tx.send((terminal_id, resp_tx)).is_err() {
+                    return TerminalOutputSnapshot {
+                        output: String::new(),
+                        truncated: false,
+                        exit_code: None,
+                    };
+                }
+                helix_event::request_redraw();
+                resp_rx.recv().unwrap_or(TerminalOutputSnapshot {
+                    output: String::new(),
+                    truncated: false,
+                    exit_code: None,
+                })
+            }
+        });
+
+        let wait_fn: TerminalWaitExitFn = Arc::new({
+            let wait_tx = wait_tx.clone();
+            move |terminal_id| {
+                let (resp_tx, resp_rx) = mpsc::sync_channel(1);
+                if wait_tx.send((terminal_id, resp_tx)).is_err() {
+                    return Err("agent terminal bridge closed".into());
+                }
+                helix_event::request_redraw();
+                resp_rx
+                    .recv()
+                    .unwrap_or_else(|_| Err("agent terminal bridge closed".into()))
+            }
+        });
+
+        let kill_fn: TerminalKillFn = Arc::new({
+            let kill_tx = kill_tx.clone();
+            move |terminal_id| {
+                let (resp_tx, resp_rx) = mpsc::sync_channel(1);
+                if kill_tx.send((terminal_id, resp_tx)).is_err() {
+                    return Err("agent terminal bridge closed".into());
+                }
+                helix_event::request_redraw();
+                resp_rx
+                    .recv()
+                    .unwrap_or_else(|_| Err("agent terminal bridge closed".into()))
+            }
+        });
+
+        let release_fn: TerminalReleaseFn = Arc::new({
+            let release_tx = release_tx.clone();
+            move |terminal_id| {
+                let (resp_tx, resp_rx) = mpsc::sync_channel(1);
+                if release_tx.send((terminal_id, resp_tx)).is_err() {
+                    return Err("agent terminal bridge closed".into());
+                }
+                helix_event::request_redraw();
+                resp_rx
+                    .recv()
+                    .unwrap_or_else(|_| Err("agent terminal bridge closed".into()))
+            }
+        });
+
+        (
+            Self {
+                create_requests: create_rx,
+                output_requests: output_rx,
+                wait_requests: wait_rx,
+                kill_requests: kill_rx,
+                release_requests: release_rx,
+                exit_results: HashMap::new(),
+                exit_waiters: HashMap::new(),
+            },
+            create_fn,
+            output_fn,
+            wait_fn,
+            kill_fn,
+            release_fn,
+        )
+    }
+
+    fn poll(&mut self, editor: &mut Editor) {
+        while let Ok((request, resp)) = self.create_requests.try_recv() {
+            let _ = resp.send(terminal_create_impl(editor, request));
+        }
+        while let Ok((terminal_id, resp)) = self.output_requests.try_recv() {
+            let _ = resp.send(terminal_output_impl(editor, &self.exit_results, &terminal_id));
+        }
+        while let Ok((terminal_id, resp)) = self.wait_requests.try_recv() {
+            terminal_wait_impl(self, &terminal_id, resp);
+        }
+        while let Ok((terminal_id, resp)) = self.kill_requests.try_recv() {
+            let _ = resp.send(terminal_kill_impl(&terminal_id));
+        }
+        while let Ok((terminal_id, resp)) = self.release_requests.try_recv() {
+            let _ = resp.send(terminal_release_impl(editor, &terminal_id));
+        }
+    }
+
+    fn store_exit(&mut self, terminal_id: &str, result: TerminalExitResult) {
+        self.exit_results.insert(terminal_id.to_string(), result.clone());
+        if let Some(waiters) = self.exit_waiters.remove(terminal_id) {
+            for waiter in waiters {
+                let _ = waiter.send(Ok(result.clone()));
+            }
+        }
+    }
+}
+
+fn next_agent_terminal_id() -> String {
+    let id = NEXT_AGENT_TERMINAL_ID.fetch_add(1, Ordering::Relaxed);
+    format!("agent-term-{id}")
+}
+
+fn terminal_create_impl(
+    editor: &mut Editor,
+    request: TerminalCreateRequest,
+) -> Result<String, String> {
+    let terminal_id = next_agent_terminal_id();
+    spawn_shell_program(
+        editor,
+        &terminal_id,
+        request.command,
+        request.args,
+        request.env,
+        request.cwd,
+        request.output_byte_limit,
+    );
+    Ok(terminal_id)
+}
+
+fn spawn_shell_program(
+    editor: &mut Editor,
+    terminal_id: &str,
+    command: String,
+    args: Vec<String>,
+    env: Vec<(String, String)>,
+    cwd: Option<PathBuf>,
+    output_byte_limit: Option<u64>,
+) {
+    editor.agent.upsert_shell_block(
+        terminal_id.to_string(),
+        command.clone(),
+        args.clone(),
+        output_byte_limit,
+    );
+    crate::terminal::send(TerminalCommand::SpawnProgram {
+        id: TerminalId(terminal_id.to_string()),
+        command,
+        args,
+        env,
+        cwd,
+        rows: 24,
+        cols: 80,
+    });
+}
+
+fn try_run_tool_shell_command(editor: &mut Editor, tool_id: &str, command: &str) {
+    if editor.agent.tool_shell_index.contains_key(tool_id) {
+        return;
+    }
+    let terminal_id = format!("tool-{tool_id}");
+    editor.agent.link_tool_to_terminal(tool_id, &terminal_id);
+    let cwd = editor
+        .last_cwd
+        .clone()
+        .or_else(|| std::env::current_dir().ok());
+    crate::terminal::send(TerminalCommand::SpawnProgram {
+        id: TerminalId(terminal_id),
+        command: "/bin/sh".into(),
+        args: vec!["-c".into(), command.into()],
+        env: Vec::new(),
+        cwd,
+        rows: 24,
+        cols: 80,
+    });
+}
+
+fn link_tool_to_existing_terminal(editor: &mut Editor, tool_id: &str, terminal_id: &str) {
+    if editor.agent.tool_shell_index.contains_key(tool_id) {
+        return;
+    }
+    editor.agent.link_tool_to_terminal(tool_id, terminal_id);
+    if let Some(handle) = crate::terminal::session_handle(terminal_id) {
+        let output = handle.plain_text_output();
+        editor.agent.set_shell_output(terminal_id, output);
+    }
+}
+
+fn handle_tool_shell(
+    editor: &mut Editor,
+    tool_id: &str,
+    shell_command: Option<String>,
+    terminal_id: Option<String>,
+) {
+    if let Some(terminal_id) = terminal_id {
+        link_tool_to_existing_terminal(editor, tool_id, &terminal_id);
+    }
+    if let Some(command) = shell_command.filter(|command| !command.is_empty()) {
+        try_run_tool_shell_command(editor, tool_id, &command);
+    }
+}
+
+fn terminal_output_impl(
+    editor: &Editor,
+    exit_results: &HashMap<String, TerminalExitResult>,
+    terminal_id: &str,
+) -> TerminalOutputSnapshot {
+    let output = crate::terminal::session_handle(terminal_id)
+        .map(|handle| handle.plain_text_output())
+        .unwrap_or_default();
+    let byte_limit = editor
+        .agent
+        .shell_output_limits
+        .get(terminal_id)
+        .copied()
+        .unwrap_or(u64::MAX);
+    let (output, truncated) = truncate_output(&output, byte_limit);
+    let exit_code = exit_results
+        .get(terminal_id)
+        .and_then(|result| result.exit_code);
+    TerminalOutputSnapshot {
+        output,
+        truncated,
+        exit_code,
+    }
+}
+
+fn terminal_wait_impl(
+    bridge: &mut TerminalBridge,
+    terminal_id: &str,
+    resp: SyncSender<Result<TerminalExitResult, String>>,
+) {
+    if let Some(result) = bridge.exit_results.get(terminal_id) {
+        let _ = resp.send(Ok(result.clone()));
+        return;
+    }
+    bridge
+        .exit_waiters
+        .entry(terminal_id.to_string())
+        .or_default()
+        .push(resp);
+}
+
+fn terminal_kill_impl(terminal_id: &str) -> Result<(), String> {
+    crate::terminal::send(TerminalCommand::Kill {
+        id: TerminalId(terminal_id.to_string()),
+    });
+    Ok(())
+}
+
+fn terminal_release_impl(editor: &mut Editor, terminal_id: &str) -> Result<(), String> {
+    crate::terminal::send(TerminalCommand::Kill {
+        id: TerminalId(terminal_id.to_string()),
+    });
+    editor.agent.remove_shell_terminal(terminal_id);
+    Ok(())
+}
+
+/// Called when a PTY session linked to an agent shell block exits.
+pub fn notify_agent_terminal_exited(
+    editor: &mut Editor,
+    bridge: &mut TerminalBridge,
+    terminal_id: &str,
+    code: Option<i32>,
+    signal: Option<i32>,
+) {
+    let failed = signal.is_some() || code.is_some_and(|code| code != 0);
+    if editor.agent.shell_block_index.contains_key(terminal_id) {
+        editor.agent.finish_shell_block(terminal_id, code, failed);
+    }
+    if let Some(tool_id) = editor
+        .agent
+        .tool_id_for_terminal(terminal_id)
+        .map(str::to_string)
+    {
+        editor.agent.finish_tool_shell(&tool_id, code, failed);
+    }
+    bridge.store_exit(
+        terminal_id,
+        TerminalExitResult {
+            exit_code: code,
+            signal,
+        },
+    );
+}
+
+/// Called when PTY output updates for an agent shell block.
+pub fn notify_agent_terminal_updated(editor: &mut Editor, terminal_id: &str) {
+    let Some(handle) = crate::terminal::session_handle(terminal_id) else {
+        return;
+    };
+    let output = handle.plain_text_output();
+    if editor.agent.shell_block_index.contains_key(terminal_id) {
+        editor.agent.set_shell_output(terminal_id, output);
+    } else if let Some(tool_id) = editor
+        .agent
+        .tool_id_for_terminal(terminal_id)
+        .map(str::to_string)
+    {
+        editor.agent.set_tool_shell_output(&tool_id, output);
+    }
+}
 
 #[derive(Default)]
 pub struct AgentController {
     runtime: Option<AgentRuntimeHandle>,
     events_rx: Option<UnboundedReceiver<AgentEvent>>,
     fs_bridge: Option<FsBridge>,
+    terminal_bridge: Option<TerminalBridge>,
 }
 
 
@@ -99,6 +452,8 @@ impl AgentController {
         }
 
         let (fs_bridge, fs_read, fs_write) = FsBridge::new();
+        let (terminal_bridge, terminal_create, terminal_output, terminal_wait, terminal_kill, terminal_release) =
+            TerminalBridge::new();
         let config = AgentConfig {
             command: settings.command.clone(),
             client_name: "helix".into(),
@@ -111,10 +466,20 @@ impl AgentController {
             auto_approve_permissions: settings.auto_approve_permissions,
         };
 
-        let (handle, events_rx) = AgentRuntime::spawn(config, fs_read, fs_write);
+        let (handle, events_rx) = AgentRuntime::spawn(
+            config,
+            fs_read,
+            fs_write,
+            terminal_create,
+            terminal_output,
+            terminal_wait,
+            terminal_kill,
+            terminal_release,
+        );
         self.runtime = Some(handle);
         self.events_rx = Some(events_rx);
         self.fs_bridge = Some(fs_bridge);
+        self.terminal_bridge = Some(terminal_bridge);
         Ok(())
     }
 
@@ -142,6 +507,7 @@ impl AgentController {
         }
         self.events_rx = None;
         self.fs_bridge = None;
+        self.terminal_bridge = None;
     }
 
     pub fn send(&self, cmd: AgentCommand) {
@@ -153,6 +519,25 @@ impl AgentController {
     pub fn poll(&mut self, editor: &mut Editor) {
         if let Some(bridge) = self.fs_bridge.as_mut() {
             bridge.poll(editor);
+        }
+        if let Some(bridge) = self.terminal_bridge.as_mut() {
+            bridge.poll(editor);
+        }
+    }
+
+    pub fn on_terminal_updated(&mut self, editor: &mut Editor, terminal_id: &str) {
+        notify_agent_terminal_updated(editor, terminal_id);
+    }
+
+    pub fn on_terminal_exited(
+        &mut self,
+        editor: &mut Editor,
+        terminal_id: &str,
+        code: Option<i32>,
+        signal: Option<i32>,
+    ) {
+        if let Some(bridge) = self.terminal_bridge.as_mut() {
+            notify_agent_terminal_exited(editor, bridge, terminal_id, code, signal);
         }
     }
 
@@ -320,10 +705,10 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
                 "ui: SessionLoaded {} ({} replay msgs, {} transcript entries)",
                 session_id.0,
                 editor.agent.load_replay_count,
-                editor.agent.transcript.len()
+                editor.agent.blocks.len()
             ));
-            if editor.agent.transcript.is_empty() {
-                editor.agent.push_entry(AgentTranscriptEntry::System {
+            if editor.agent.blocks.is_empty() {
+                editor.agent.push_block(AgentBlockKind::System {
                     text: "No prior messages were replayed for this session.\n\n\
                         Helix received session/load from the agent, but no \
                         user_message_chunk or agent_message_chunk updates arrived.\n\n\
@@ -367,17 +752,26 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
                     title,
                     status,
                     detail,
+                    shell_command,
+                    terminal_id,
                 } => {
                     editor.agent.upsert_tool_call(
                         id.clone(),
                         title.clone(),
                         status.clone(),
                         detail.clone(),
+                        terminal_id.clone(),
+                    );
+                    handle_tool_shell(
+                        editor,
+                        &id,
+                        shell_command.clone(),
+                        terminal_id.clone(),
                     );
                 }
                 _ => {
-                    if let Some(entry) = map_message(msg.clone()) {
-                        editor.agent.append_or_push(entry);
+                    if let Some(kind) = map_message(msg.clone()) {
+                        editor.agent.push_block(kind);
                     }
                 }
             }
@@ -387,10 +781,19 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
             title,
             status,
             detail,
+            shell_command,
+            terminal_id,
+            agent_output,
         } => {
-            editor
-                .agent
-                .update_tool_call(id, title.clone(), status.clone(), detail.clone());
+            editor.agent.update_tool_call(
+                id,
+                title.clone(),
+                status.clone(),
+                detail.clone(),
+                terminal_id.clone(),
+                agent_output.clone(),
+            );
+            handle_tool_shell(editor, id, shell_command.clone(), terminal_id.clone());
         }
         AgentEvent::TurnStarted => {
             editor.agent.pending = true;
@@ -426,7 +829,7 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
             editor.agent.error = Some(text.clone());
             editor
                 .agent
-                .push_entry(AgentTranscriptEntry::Error { text: text.clone() });
+                .push_block(AgentBlockKind::Error { text: text.clone() });
         }
         AgentEvent::PermissionRequested {
             request_id,
@@ -534,19 +937,17 @@ fn apply_active_session_info_update(
     });
 }
 
-fn map_message(msg: AgentMessage) -> Option<AgentTranscriptEntry> {
+fn map_message(msg: AgentMessage) -> Option<AgentBlockKind> {
     Some(match msg {
-        AgentMessage::User { text } if !text.is_empty() => AgentTranscriptEntry::User { text },
+        AgentMessage::User { text } if !text.is_empty() => AgentBlockKind::User { text },
         AgentMessage::Assistant { text } if !text.is_empty() => {
-            AgentTranscriptEntry::Assistant { text }
+            AgentBlockKind::Assistant { text }
         }
-        AgentMessage::Thought { text } if !text.is_empty() => {
-            AgentTranscriptEntry::Thought { text }
-        }
+        AgentMessage::Thought { text } if !text.is_empty() => AgentBlockKind::Thought { text },
         AgentMessage::ToolCall { .. } => return None,
-        AgentMessage::Plan { entries } => AgentTranscriptEntry::Plan { entries },
-        AgentMessage::System { text } if !text.is_empty() => AgentTranscriptEntry::System { text },
-        AgentMessage::Error { text } if !text.is_empty() => AgentTranscriptEntry::Error { text },
+        AgentMessage::Plan { entries } => AgentBlockKind::Plan { entries },
+        AgentMessage::System { text } if !text.is_empty() => AgentBlockKind::System { text },
+        AgentMessage::Error { text } if !text.is_empty() => AgentBlockKind::Error { text },
         AgentMessage::User { .. }
         | AgentMessage::Assistant { .. }
         | AgentMessage::Thought { .. }
@@ -654,14 +1055,14 @@ pub fn fs_write_impl(editor: &mut Editor, request: FsWriteRequest) -> FsWriteRes
 #[cfg(test)]
 mod tests {
     use super::*;
-    use helix_view::agent::AgentTranscriptEntry;
+    use helix_view::agent::AgentBlockKind;
 
     #[test]
     fn map_message_covers_user_role() {
-        let entry = map_message(AgentMessage::User {
+        let kind = map_message(AgentMessage::User {
             text: "hello".into(),
         })
         .unwrap();
-        assert!(matches!(entry, AgentTranscriptEntry::User { .. }));
+        assert!(matches!(kind, AgentBlockKind::User { .. }));
     }
 }

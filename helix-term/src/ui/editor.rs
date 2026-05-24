@@ -941,7 +941,9 @@ impl EditorView {
         cxt: &mut commands::Context,
         event: KeyEvent,
     ) -> Option<KeymapResult> {
-        let mut last_mode = mode;
+        // Track the editor's actual mode for OnModeSwitch. The `mode` parameter may differ
+        // when a panel leaf is focused (e.g. terminal insert mode uses normal keymaps).
+        let mut last_mode = cxt.editor.mode();
         self.pseudo_pending.extend(self.keymaps.pending());
         let key_result = self.keymaps.get(mode, event);
         cxt.editor.autoinfo = self.keymaps.sticky().map(|node| node.infobox());
@@ -1635,7 +1637,7 @@ impl Component for EditorView {
                 let terminal_leaf_focused =
                     cx.editor.tree.is_terminal_panel(cx.editor.tree.focus);
                 if cx.editor.agent_panel_focused()
-                    && !self.panel_keymap_passthrough(key)
+                    && !self.panel_keymap_passthrough_without_space(key)
                         && crate::ui::agent::handle_key(cx.editor, key)
                     {
                         return Self::event_with_callbacks(&mut cx);

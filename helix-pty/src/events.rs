@@ -12,6 +12,16 @@ pub enum TerminalCommand {
         rows: u16,
         cols: u16,
     },
+    /// Spawn a specific program (used by ACP `terminal/create`).
+    SpawnProgram {
+        id: TerminalId,
+        command: String,
+        args: Vec<String>,
+        env: Vec<(String, String)>,
+        cwd: Option<PathBuf>,
+        rows: u16,
+        cols: u16,
+    },
     Write {
         id: TerminalId,
         data: Vec<u8>,

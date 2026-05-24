@@ -264,20 +264,21 @@ focus; closing one panel does not kill others unless configured.
 
 Unblocks [helix-acp/ROADMAP.md Tier 3](../helix-acp/ROADMAP.md) terminal items.
 
-- [ ] **Advertise terminal capability** — On ACP `initialize`, set terminal
+- [x] **Advertise terminal capability** — On ACP `initialize`, set terminal
   support flags expected by the protocol.
   - Files: [`helix-acp/src/runtime.rs`](../helix-acp/src/runtime.rs)
-- [ ] **`terminal/create`** — Agent requests a PTY; Helix spawns session, returns
-  terminal id; optionally auto-open panel or run headless.
+- [x] **`terminal/create`** — Agent requests a PTY; Helix spawns session, returns
+  terminal id; headless shell blocks in the agent pane.
   - Files: `helix-pty`, [`helix-acp/src/runtime.rs`](../helix-acp/src/runtime.rs),
     [`helix-term/src/handlers/agent.rs`](../helix-term/src/handlers/agent.rs)
-- [ ] **`terminal/output`** — Stream PTY output to agent (with rate limiting /
-  chunk size cap).
-- [ ] **`terminal/wait_for_exit` / `kill` / `release`** — Lifecycle RPCs wired to
+- [x] **`terminal/output`** — PTY output snapshot for agent polling with byte-limit
+  truncation.
+- [x] **`terminal/wait_for_exit` / `kill` / `release`** — Lifecycle RPCs wired to
   `TerminalCommand`.
-- [ ] **Transcript link** — Tool rows showing `terminal: {id}` focus/jump to the
-  terminal panel.
-  - Files: [`helix-term/src/ui/agent.rs`](../helix-term/src/ui/agent.rs)
+- [x] **Shell blocks in agent transcript** — Stream PTY output into collapsible shell
+  blocks (replaces static `terminal: {id}` tool detail text).
+  - Files: [`helix-term/src/ui/agent.rs`](../helix-term/src/ui/agent.rs),
+    [`helix-view/src/agent.rs`](../helix-view/src/agent.rs)
 
 ### DAP `runInTerminal`
 

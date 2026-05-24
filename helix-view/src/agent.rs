@@ -1,6 +1,6 @@
 //! Agent panel UI state stored on the editor.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -48,9 +48,18 @@ impl AgentTranscriptSelection {
     }
 }
 
-/// A transcript entry displayed in the agent panel.
+/// Lifecycle status for a shell block backed by an ACP terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ShellBlockStatus {
+    #[default]
+    Running,
+    Completed,
+    Failed,
+}
+
+/// Kind of content in an agent transcript block.
 #[derive(Debug, Clone)]
-pub enum AgentTranscriptEntry {
+pub enum AgentBlockKind {
     User {
         text: String,
     },
@@ -60,11 +69,24 @@ pub enum AgentTranscriptEntry {
     Thought {
         text: String,
     },
-    ToolCall {
+    Tool {
         id: String,
         title: String,
         status: String,
         detail: Option<String>,
+        /// Live PTY output when this tool runs a shell command locally.
+        shell_output: String,
+        /// Terminal session id when linked to a shell block or tool PTY.
+        linked_terminal_id: Option<String>,
+        expanded: bool,
+    },
+    Shell {
+        terminal_id: String,
+        command: String,
+        args: Vec<String>,
+        output: String,
+        status: ShellBlockStatus,
+        exit_code: Option<i32>,
         expanded: bool,
     },
     Plan {
@@ -78,29 +100,30 @@ pub enum AgentTranscriptEntry {
     },
 }
 
-impl AgentTranscriptEntry {
-    pub fn append_chunk(&mut self, chunk: &str) {
-        match self {
-            Self::User { text }
-            | Self::Assistant { text }
-            | Self::Thought { text }
-            | Self::System { text }
-            | Self::Error { text } => text.push_str(chunk),
-            _ => {}
-        }
-    }
-
+impl AgentBlockKind {
     pub fn role_label(&self) -> &'static str {
         match self {
             Self::User { .. } => "user",
             Self::Assistant { .. } => "assistant",
             Self::Thought { .. } => "thought",
-            Self::ToolCall { .. } => "tool",
+            Self::Tool { .. } => "tool",
+            Self::Shell { .. } => "shell",
             Self::Plan { .. } => "plan",
             Self::System { .. } => "system",
             Self::Error { .. } => "error",
         }
     }
+
+    pub fn is_collapsible(&self) -> bool {
+        matches!(self, Self::Tool { .. } | Self::Shell { .. })
+    }
+}
+
+/// A single block in the agent transcript.
+#[derive(Debug, Clone)]
+pub struct AgentBlock {
+    pub id: String,
+    pub kind: AgentBlockKind,
 }
 
 /// Session metadata tracked by the editor UI.
@@ -219,7 +242,7 @@ pub struct AgentState {
     pub panel_id: Option<crate::ViewId>,
     pub active_session: Option<String>,
     pub sessions: Vec<AgentSessionMeta>,
-    pub transcript: Vec<AgentTranscriptEntry>,
+    pub blocks: Vec<AgentBlock>,
     pub input: String,
     pub input_cursor: usize,
     pub scroll: usize,
@@ -253,8 +276,16 @@ pub struct AgentState {
     pub close_session: bool,
     /// When true, filter session history picker to the current working directory.
     pub history_filter_cwd: bool,
-    /// Index into `transcript` of the focused tool row for keyboard toggle.
-    pub transcript_tool_focus: Option<usize>,
+    /// Index into `blocks` of the focused collapsible row for keyboard toggle.
+    pub block_collapsible_focus: Option<usize>,
+    /// Maps ACP terminal ids to block indices for shell output streaming.
+    pub shell_block_index: HashMap<String, usize>,
+    /// Maps tool call ids to terminal ids for shell command tools.
+    pub tool_shell_index: HashMap<String, String>,
+    /// Monotonic counter for generating block ids.
+    next_block_id: u64,
+    /// Per-terminal output byte limits from ACP `terminal/create`.
+    pub shell_output_limits: HashMap<String, u64>,
 }
 
 /// Option for an ACP permission request.
@@ -282,39 +313,24 @@ impl AgentState {
         self.panel_id.is_some()
     }
 
-    pub fn push_entry(&mut self, entry: AgentTranscriptEntry) {
-        self.transcript.push(entry);
+    fn next_block_id(&mut self) -> String {
+        self.next_block_id += 1;
+        format!("block-{}", self.next_block_id)
     }
 
-    pub fn append_or_push(&mut self, entry: AgentTranscriptEntry) {
-        let same_role = self
-            .transcript
-            .last()
-            .map(|last| last.role_label() == entry.role_label())
-            .unwrap_or(false);
-
-        if same_role {
-            if let Some(last) = self.transcript.last_mut() {
-                if let AgentTranscriptEntry::User { text }
-                | AgentTranscriptEntry::Assistant { text }
-                | AgentTranscriptEntry::Thought { text } = entry
-                {
-                    last.append_chunk(&text);
-                    if self.scroll == 0 {
-                        self.scroll = 0;
-                    }
-                    return;
-                }
-            }
-        }
-        self.push_entry(entry);
+    pub fn push_block(&mut self, kind: AgentBlockKind) {
+        let id = self.next_block_id();
+        self.blocks.push(AgentBlock { id, kind });
     }
 
     pub fn clear_transcript(&mut self) {
-        self.transcript.clear();
+        self.blocks.clear();
         self.scroll = 0;
         self.transcript_selection = None;
-        self.transcript_tool_focus = None;
+        self.block_collapsible_focus = None;
+        self.shell_block_index.clear();
+        self.shell_output_limits.clear();
+        self.tool_shell_index.clear();
     }
 
     pub fn upsert_tool_call(
@@ -323,25 +339,28 @@ impl AgentState {
         title: String,
         status: String,
         detail: Option<String>,
+        linked_terminal_id: Option<String>,
     ) {
         if let Some(index) = self
-            .transcript
+            .blocks
             .iter()
-            .position(|entry| matches!(entry, AgentTranscriptEntry::ToolCall { id: existing, .. } if existing == &id))
+            .position(|block| matches!(&block.kind, AgentBlockKind::Tool { id: existing, .. } if existing == &id))
         {
-            if let AgentTranscriptEntry::ToolCall {
+            if let AgentBlockKind::Tool {
                 title: existing_title,
                 status: existing_status,
                 detail: existing_detail,
+                linked_terminal_id: existing_terminal,
                 expanded,
                 ..
-            } = &mut self.transcript[index]
+            } = &mut self.blocks[index].kind
             {
                 *existing_title = title;
                 let collapsed = tool_status_collapsed(&status);
                 *existing_status = status;
-                if detail.is_some() {
-                    *existing_detail = detail;
+                merge_tool_detail(existing_detail, detail);
+                if linked_terminal_id.is_some() {
+                    *existing_terminal = linked_terminal_id;
                 }
                 if collapsed {
                     *expanded = false;
@@ -351,11 +370,13 @@ impl AgentState {
         }
 
         let expanded = !tool_status_collapsed(&status);
-        self.push_entry(AgentTranscriptEntry::ToolCall {
+        self.push_block(AgentBlockKind::Tool {
             id,
             title,
             status,
             detail,
+            shell_output: String::new(),
+            linked_terminal_id,
             expanded,
         });
     }
@@ -366,19 +387,23 @@ impl AgentState {
         title: Option<String>,
         status: Option<String>,
         detail: Option<String>,
+        linked_terminal_id: Option<String>,
+        agent_output: Option<String>,
     ) {
-        let Some(index) = self.transcript.iter().position(|entry| {
-            matches!(entry, AgentTranscriptEntry::ToolCall { id: existing, .. } if existing == id)
+        let Some(index) = self.blocks.iter().position(|block| {
+            matches!(&block.kind, AgentBlockKind::Tool { id: existing, .. } if existing == id)
         }) else {
             return;
         };
-        if let AgentTranscriptEntry::ToolCall {
+        if let AgentBlockKind::Tool {
             title: existing_title,
             status: existing_status,
             detail: existing_detail,
+            shell_output,
+            linked_terminal_id: existing_terminal,
             expanded,
             ..
-        } = &mut self.transcript[index]
+        } = &mut self.blocks[index].kind
         {
             if let Some(title) = title {
                 *existing_title = title;
@@ -389,27 +414,172 @@ impl AgentState {
                     *expanded = false;
                 }
             }
-            if detail.is_some() {
-                *existing_detail = detail;
+            merge_tool_detail(existing_detail, detail);
+            if let Some(output) = agent_output {
+                if !output.is_empty() {
+                    *shell_output = output;
+                }
+            }
+            if linked_terminal_id.is_some() {
+                *existing_terminal = linked_terminal_id;
             }
         }
     }
 
-    pub fn toggle_tool_call(&mut self, index: usize) {
-        if let Some(AgentTranscriptEntry::ToolCall { expanded, .. }) =
-            self.transcript.get_mut(index)
+    pub fn link_tool_to_terminal(&mut self, tool_id: &str, terminal_id: &str) {
+        self.tool_shell_index
+            .insert(tool_id.to_string(), terminal_id.to_string());
+        let Some(index) = self.blocks.iter().position(|block| {
+            matches!(&block.kind, AgentBlockKind::Tool { id, .. } if id == tool_id)
+        }) else {
+            return;
+        };
+        if let AgentBlockKind::Tool {
+            linked_terminal_id,
+            expanded,
+            ..
+        } = &mut self.blocks[index].kind
         {
-            *expanded = !*expanded;
+            *linked_terminal_id = Some(terminal_id.to_string());
+            *expanded = true;
         }
     }
 
-    pub fn tool_call_indices(&self) -> impl Iterator<Item = usize> + '_ {
-        self.transcript
+    pub fn set_tool_shell_output(&mut self, tool_id: &str, output: String) {
+        let Some(index) = self.blocks.iter().position(|block| {
+            matches!(&block.kind, AgentBlockKind::Tool { id, .. } if id == tool_id)
+        }) else {
+            return;
+        };
+        if let AgentBlockKind::Tool { shell_output, expanded, .. } =
+            &mut self.blocks[index].kind
+        {
+            *shell_output = output;
+            *expanded = true;
+        }
+    }
+
+    pub fn finish_tool_shell(&mut self, tool_id: &str, exit_code: Option<i32>, failed: bool) {
+        let Some(index) = self.blocks.iter().position(|block| {
+            matches!(&block.kind, AgentBlockKind::Tool { id, .. } if id == tool_id)
+        }) else {
+            return;
+        };
+        if let AgentBlockKind::Tool {
+            status,
+            expanded,
+            ..
+        } = &mut self.blocks[index].kind
+        {
+            *status = if failed {
+                exit_code
+                    .map(|code| format!("failed ({code})"))
+                    .unwrap_or_else(|| "failed".into())
+            } else {
+                exit_code
+                    .map(|code| format!("completed ({code})"))
+                    .unwrap_or_else(|| "completed".into())
+            };
+            if !failed {
+                *expanded = false;
+            }
+        }
+    }
+
+    pub fn tool_id_for_terminal(&self, terminal_id: &str) -> Option<&str> {
+        self.tool_shell_index
             .iter()
-            .enumerate()
-            .filter_map(|(index, entry)| {
-                matches!(entry, AgentTranscriptEntry::ToolCall { .. }).then_some(index)
-            })
+            .find_map(|(tool_id, linked)| (linked == terminal_id).then_some(tool_id.as_str()))
+    }
+
+    pub fn upsert_shell_block(
+        &mut self,
+        terminal_id: String,
+        command: String,
+        args: Vec<String>,
+        output_byte_limit: Option<u64>,
+    ) {
+        if let Some(&index) = self.shell_block_index.get(&terminal_id) {
+            if let AgentBlockKind::Shell {
+                command: existing_command,
+                args: existing_args,
+                ..
+            } = &mut self.blocks[index].kind
+            {
+                *existing_command = command;
+                *existing_args = args;
+            }
+            if let Some(limit) = output_byte_limit {
+                self.shell_output_limits.insert(terminal_id.clone(), limit);
+            }
+            return;
+        }
+
+        if let Some(limit) = output_byte_limit {
+            self.shell_output_limits.insert(terminal_id.clone(), limit);
+        }
+
+        let index = self.blocks.len();
+        self.push_block(AgentBlockKind::Shell {
+            terminal_id: terminal_id.clone(),
+            command,
+            args,
+            output: String::new(),
+            status: ShellBlockStatus::Running,
+            exit_code: None,
+            expanded: true,
+        });
+        self.shell_block_index.insert(terminal_id, index);
+    }
+
+    pub fn set_shell_output(&mut self, terminal_id: &str, output: String) {
+        if let Some(&index) = self.shell_block_index.get(terminal_id) {
+            if let AgentBlockKind::Shell {
+                output: existing,
+                ..
+            } = &mut self.blocks[index].kind
+            {
+                *existing = output.clone();
+            }
+        }
+        if let Some(tool_id) = self.tool_id_for_terminal(terminal_id).map(str::to_string) {
+            self.set_tool_shell_output(&tool_id, output);
+        }
+    }
+
+    pub fn finish_shell_block(&mut self, terminal_id: &str, exit_code: Option<i32>, failed: bool) {
+        let Some(&index) = self.shell_block_index.get(terminal_id) else {
+            return;
+        };
+        if let AgentBlockKind::Shell {
+            status,
+            exit_code: existing_code,
+            expanded,
+            ..
+        } = &mut self.blocks[index].kind
+        {
+            *status = if failed {
+                ShellBlockStatus::Failed
+            } else {
+                ShellBlockStatus::Completed
+            };
+            *existing_code = exit_code;
+            *expanded = false;
+        }
+    }
+
+    pub fn toggle_collapsible_block(&mut self, index: usize) {
+        match self.blocks.get_mut(index).map(|block| &mut block.kind) {
+            Some(AgentBlockKind::Tool { expanded, .. }) => *expanded = !*expanded,
+            Some(AgentBlockKind::Shell { expanded, .. }) => *expanded = !*expanded,
+            _ => {}
+        }
+    }
+
+    pub fn collapsible_block_indices(&self) -> impl Iterator<Item = usize> + '_ {
+        self.blocks.iter().enumerate().filter_map(|(index, block)| {
+            block.kind.is_collapsible().then_some(index)
+        })
     }
 
     pub fn clear_transcript_selection(&mut self) {
@@ -432,8 +602,72 @@ impl AgentState {
         self.debug_log.clear();
         self.load_replay_count = 0;
     }
+
+    pub fn remove_shell_terminal(&mut self, terminal_id: &str) {
+        self.shell_block_index.remove(terminal_id);
+        self.shell_output_limits.remove(terminal_id);
+    }
 }
 
 fn tool_status_collapsed(status: &str) -> bool {
-    matches!(status, "completed" | "failed")
+    matches!(status, "completed" | "failed") || status.starts_with("completed")
+        || status.starts_with("failed")
+}
+
+fn merge_tool_detail(existing: &mut Option<String>, incoming: Option<String>) {
+    let Some(incoming) = incoming else {
+        return;
+    };
+    if incoming.is_empty() {
+        return;
+    }
+    match existing {
+        None => *existing = Some(incoming),
+        Some(existing) => {
+            if existing.contains(incoming.as_str()) {
+                return;
+            }
+            if incoming.starts_with("output:") && !existing.contains("output:") {
+                existing.push_str("\n\n");
+                existing.push_str(&incoming);
+                return;
+            }
+            if incoming.len() > existing.len() {
+                *existing = incoming;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn push_block_never_merges_assistant_chunks() {
+        let mut state = AgentState::new();
+        state.push_block(AgentBlockKind::Assistant {
+            text: "hello ".into(),
+        });
+        state.push_block(AgentBlockKind::Assistant {
+            text: "world".into(),
+        });
+        assert_eq!(state.blocks.len(), 2);
+    }
+
+    #[test]
+    fn shell_output_updates_by_terminal_id() {
+        let mut state = AgentState::new();
+        state.upsert_shell_block(
+            "term-1".into(),
+            "echo".into(),
+            vec!["hi".into()],
+            None,
+        );
+        state.set_shell_output("term-1", "hi\n".into());
+        let AgentBlockKind::Shell { output, .. } = &state.blocks[0].kind else {
+            panic!("expected shell block");
+        };
+        assert_eq!(output, "hi\n");
+    }
 }

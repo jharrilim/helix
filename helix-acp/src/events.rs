@@ -21,6 +21,10 @@ pub enum AgentMessage {
         title: String,
         status: String,
         detail: Option<String>,
+        /// Shell command extracted from tool input, if this is a run-command tool.
+        shell_command: Option<String>,
+        /// ACP terminal id embedded in tool content, if present.
+        terminal_id: Option<String>,
     },
     Plan {
         entries: Vec<String>,
@@ -95,6 +99,9 @@ pub enum AgentEvent {
         title: Option<String>,
         status: Option<String>,
         detail: Option<String>,
+        shell_command: Option<String>,
+        terminal_id: Option<String>,
+        agent_output: Option<String>,
     },
     TurnStarted,
     TurnFinished {

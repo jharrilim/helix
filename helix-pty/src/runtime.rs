@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use alacritty_terminal::tty::Shell;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::events::{TerminalCommand, TerminalEvent};
@@ -50,6 +51,7 @@ impl TerminalRuntime {
             let spawn_config = TerminalSpawnConfig {
                 scrollback_lines: config.scrollback_lines,
                 shell: None,
+                env: HashMap::new(),
             };
 
             while let Some(command) = cmd_rx.recv().await {
@@ -71,6 +73,38 @@ impl TerminalRuntime {
                             Err(err) => {
                                 let _ = events_tx.send(TerminalEvent::Error {
                                     text: format!("failed to spawn terminal: {err:#}"),
+                                });
+                            }
+                        }
+                    }
+                    TerminalCommand::SpawnProgram {
+                        id,
+                        command,
+                        args,
+                        env,
+                        cwd,
+                        rows,
+                        cols,
+                    } => {
+                        let mut config = spawn_config.clone();
+                        config.shell = Some(Shell::new(command, args));
+                        config.env = env.into_iter().collect();
+                        match spawn_live_session(
+                            id.clone(),
+                            cwd,
+                            rows,
+                            cols,
+                            &config,
+                            events_tx.clone(),
+                        ) {
+                            Ok(session) => {
+                                let handle = session.handle.clone();
+                                sessions.insert(id.clone(), session);
+                                let _ = events_tx.send(TerminalEvent::Spawned { id, handle });
+                            }
+                            Err(err) => {
+                                let _ = events_tx.send(TerminalEvent::Error {
+                                    text: format!("failed to spawn program: {err:#}"),
                                 });
                             }
                         }

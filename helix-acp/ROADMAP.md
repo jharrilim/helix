@@ -64,7 +64,7 @@ Work top-down by tier. Mark items complete (`[x]`) when merged.
 
 - [ ] **Session history replay on `session/load`** — Blocked: Cursor `agent acp` does not
   replay transcript chunks today.
-- [ ] **Terminal capabilities** — `terminal/create`, output, wait, kill, release.
+- [x] **Terminal capabilities** — `terminal/create`, output, wait, kill, release.
 - [ ] **Remote ACP transports** — HTTP/WebSocket agents.
 
 ## Conventions

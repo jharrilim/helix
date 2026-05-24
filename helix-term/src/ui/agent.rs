@@ -6,7 +6,7 @@ use helix_core::unicode::segmentation::UnicodeSegmentation;
 use helix_core::unicode::width::UnicodeWidthStr;
 use helix_core::Position;
 use helix_view::{
-    agent::{AgentFocus, AgentTranscriptEntry, AgentTranscriptPoint, AgentTranscriptSelection},
+    agent::{AgentBlockKind, AgentFocus, AgentTranscriptPoint, AgentTranscriptSelection, ShellBlockStatus},
     graphics::{CursorKind, Modifier, Rect},
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     keyboard::{KeyCode, KeyModifiers},
@@ -40,6 +40,8 @@ enum TranscriptLineKind {
     Body { thought: bool, error: bool },
     ToolHeader,
     ToolBody,
+    ShellHeader,
+    ShellBody,
     Plan,
     Debug,
     Blank,
@@ -149,10 +151,10 @@ pub fn handle_mouse(editor: &mut Editor, event: MouseEvent) -> EventResult {
                 if text.is_empty() {
                     let (start, _) = sel.normalized();
                     if let Some(line) = layout.lines.get(start.line) {
-                        if matches!(line.kind, TranscriptLineKind::ToolHeader) {
+                        if matches!(line.kind, TranscriptLineKind::ToolHeader | TranscriptLineKind::ShellHeader) {
                             if let Some(index) = line.entry_index {
-                                editor.agent.toggle_tool_call(index);
-                                editor.agent.transcript_tool_focus = Some(index);
+                                editor.agent.toggle_collapsible_block(index);
+                                editor.agent.block_collapsible_focus = Some(index);
                                 toggled_tool = true;
                             }
                         }
@@ -216,13 +218,13 @@ fn build_transcript_layout(
 
     append_debug_lines(width, editor, &mut lines);
 
-    let entries: Vec<_> = editor.agent.transcript.iter().enumerate().rev().skip(skip).collect();
+    let blocks: Vec<_> = editor.agent.blocks.iter().enumerate().rev().skip(skip).collect();
 
-    for (index, entry) in entries.into_iter().rev() {
-        append_entry_lines(editor, index, entry, width, &mut lines);
+    for (index, block) in blocks.into_iter().rev() {
+        append_block_lines(editor, index, &block.kind, width, &mut lines);
     }
 
-    if editor.agent.transcript.is_empty() && editor.agent.debug_log.is_empty() {
+    if editor.agent.blocks.is_empty() && editor.agent.debug_log.is_empty() {
         lines.push(TranscriptLine {
             text: "(empty transcript)".into(),
             spans: Vec::new(),
@@ -557,6 +559,8 @@ fn line_style(
         TranscriptLineKind::Role
         | TranscriptLineKind::ToolHeader
         | TranscriptLineKind::ToolBody
+        | TranscriptLineKind::ShellHeader
+        | TranscriptLineKind::ShellBody
         | TranscriptLineKind::Plan => role_style,
         TranscriptLineKind::Debug => thought_style.add_modifier(Modifier::ITALIC),
         TranscriptLineKind::Body { thought: true, .. } => thought_style,
@@ -669,20 +673,20 @@ fn selection_chars_for_line(
     (Some(start_col), end_col)
 }
 
-fn append_entry_lines(
+fn append_block_lines(
     editor: &Editor,
-    entry_index: usize,
-    entry: &AgentTranscriptEntry,
+    block_index: usize,
+    kind: &AgentBlockKind,
     width: usize,
     lines: &mut Vec<TranscriptLine>,
 ) {
-    match entry {
-        AgentTranscriptEntry::User { text }
-        | AgentTranscriptEntry::Assistant { text }
-        | AgentTranscriptEntry::Thought { text } => {
-            let thought = matches!(entry, AgentTranscriptEntry::Thought { .. });
+    match kind {
+        AgentBlockKind::User { text }
+        | AgentBlockKind::Assistant { text }
+        | AgentBlockKind::Thought { text } => {
+            let thought = matches!(kind, AgentBlockKind::Thought { .. });
             lines.push(TranscriptLine {
-                text: format!("{}: ", entry.role_label()),
+                text: format!("{}: ", kind.role_label()),
                 spans: Vec::new(),
                 kind: TranscriptLineKind::Role,
                 entry_index: None,
@@ -699,10 +703,11 @@ fn append_entry_lines(
             );
             lines.push(blank_line());
         }
-        AgentTranscriptEntry::ToolCall {
+        AgentBlockKind::Tool {
             title,
             status,
             detail,
+            shell_output,
             expanded,
             ..
         } => {
@@ -711,23 +716,74 @@ fn append_entry_lines(
                 text: format!("{marker} tool: {title} [{status}]"),
                 spans: Vec::new(),
                 kind: TranscriptLineKind::ToolHeader,
-                entry_index: Some(entry_index),
+                entry_index: Some(block_index),
             });
             if *expanded {
-                if let Some(detail) = detail.as_deref().filter(|text| !text.is_empty()) {
+                if !shell_output.is_empty() {
+                    for wrapped in wrap_text(shell_output, width.saturating_sub(2)) {
+                        lines.push(TranscriptLine {
+                            text: format!("  {wrapped}"),
+                            spans: Vec::new(),
+                            kind: TranscriptLineKind::ShellBody,
+                            entry_index: Some(block_index),
+                        });
+                    }
+                } else if let Some(detail) = detail.as_deref().filter(|text| !text.is_empty()) {
                     for wrapped in wrap_text(detail, width.saturating_sub(2)) {
                         lines.push(TranscriptLine {
                             text: format!("  {wrapped}"),
                             spans: Vec::new(),
                             kind: TranscriptLineKind::ToolBody,
-                            entry_index: Some(entry_index),
+                            entry_index: Some(block_index),
                         });
                     }
                 }
             }
             lines.push(blank_line());
         }
-        AgentTranscriptEntry::Plan { entries } => {
+        AgentBlockKind::Shell {
+            command,
+            args,
+            output,
+            status,
+            exit_code,
+            expanded,
+            ..
+        } => {
+            let marker = if *expanded { "▾" } else { "▸" };
+            let status_label = match status {
+                ShellBlockStatus::Running => "running".to_string(),
+                ShellBlockStatus::Completed => exit_code
+                    .map(|code| format!("exit {code}"))
+                    .unwrap_or_else(|| "completed".into()),
+                ShellBlockStatus::Failed => exit_code
+                    .map(|code| format!("failed ({code})"))
+                    .unwrap_or_else(|| "failed".into()),
+            };
+            let cmd_line = if args.is_empty() {
+                command.clone()
+            } else {
+                format!("{command} {}", args.join(" "))
+            };
+            lines.push(TranscriptLine {
+                text: format!("{marker} $ {cmd_line} [{status_label}]"),
+                spans: Vec::new(),
+                kind: TranscriptLineKind::ShellHeader,
+                entry_index: Some(block_index),
+            });
+            if *expanded && !output.is_empty() {
+                for wrapped in wrap_text(output, width.saturating_sub(2)) {
+                    lines.push(TranscriptLine {
+                        text: format!("  {wrapped}"),
+                        spans: Vec::new(),
+                        kind: TranscriptLineKind::ShellBody,
+                        entry_index: Some(block_index),
+                    });
+                }
+            }
+            lines.push(blank_line());
+        }
+        AgentBlockKind::Plan { entries } => {
             lines.push(TranscriptLine {
                 text: "plan".into(),
                 spans: Vec::new(),
@@ -746,7 +802,7 @@ fn append_entry_lines(
             }
             lines.push(blank_line());
         }
-        AgentTranscriptEntry::System { text } => {
+        AgentBlockKind::System { text } => {
             lines.push(TranscriptLine {
                 text: "system: ".into(),
                 spans: Vec::new(),
@@ -765,7 +821,7 @@ fn append_entry_lines(
             );
             lines.push(blank_line());
         }
-        AgentTranscriptEntry::Error { text } => {
+        AgentBlockKind::Error { text } => {
             lines.push(TranscriptLine {
                 text: "error: ".into(),
                 spans: Vec::new(),
@@ -1036,13 +1092,6 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> bool {
             delete_word_backward(editor);
             true
         }
-        KeyCode::Char(' ') if key.modifiers.contains(KeyModifiers::SHIFT) => {
-            editor.agent.clear_transcript_selection();
-            editor.agent.input.insert(editor.agent.input_cursor, ' ');
-            editor.agent.input_cursor += 1;
-            true
-        }
-        KeyCode::Char(' ') => false,
         KeyCode::Char(c) if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
             editor.agent.clear_transcript_selection();
             editor.agent.input.insert(editor.agent.input_cursor, c);
@@ -1099,7 +1148,7 @@ pub fn handle_normal_key(editor: &mut Editor, key: KeyEvent) -> bool {
             helix_event::request_redraw();
             true
         }
-        KeyCode::Char('z') => toggle_focused_tool(editor),
+        KeyCode::Char('z') => toggle_focused_collapsible(editor),
         KeyCode::Enter => {
             editor.agent.focus = AgentFocus::Insert;
             editor.mode = helix_view::document::Mode::Insert;
@@ -1118,16 +1167,16 @@ pub fn handle_normal_key(editor: &mut Editor, key: KeyEvent) -> bool {
     }
 }
 
-fn toggle_focused_tool(editor: &mut Editor) -> bool {
+fn toggle_focused_collapsible(editor: &mut Editor) -> bool {
     let index = editor
         .agent
-        .transcript_tool_focus
-        .or_else(|| editor.agent.tool_call_indices().last());
+        .block_collapsible_focus
+        .or_else(|| editor.agent.collapsible_block_indices().last());
     let Some(index) = index else {
         return false;
     };
-    editor.agent.toggle_tool_call(index);
-    editor.agent.transcript_tool_focus = Some(index);
+    editor.agent.toggle_collapsible_block(index);
+    editor.agent.block_collapsible_focus = Some(index);
     helix_event::request_redraw();
     true
 }

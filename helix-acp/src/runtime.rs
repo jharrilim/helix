@@ -6,12 +6,15 @@ use std::sync::Arc;
 use agent_client_protocol as acp;
 use agent_client_protocol::schema::{
     AgentNotification, AuthMethod, CancelNotification, ClientCapabilities, CloseSessionRequest,
-    ContentBlock, FileSystemCapabilities, Implementation, InitializeRequest, InitializeResponse,
+    ContentBlock, CreateTerminalRequest, CreateTerminalResponse, FileSystemCapabilities,
+    Implementation, InitializeRequest, InitializeResponse, KillTerminalRequest, KillTerminalResponse,
     ListSessionsRequest, LoadSessionRequest, NewSessionRequest, PromptRequest, ProtocolVersion,
-    ReadTextFileRequest, ReadTextFileResponse, RequestPermissionOutcome, RequestPermissionRequest,
-    RequestPermissionResponse, ResourceLink, SelectedPermissionOutcome, SessionInfo, SessionModeState,
-    SessionNotification, SessionUpdate, SetSessionModeRequest, TextContent, ToolCall,
-    ToolCallContent, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, WriteTextFileRequest,
+    ReadTextFileRequest, ReadTextFileResponse, ReleaseTerminalRequest, ReleaseTerminalResponse,
+    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse, ResourceLink,
+    SelectedPermissionOutcome, SessionInfo, SessionModeState, SessionNotification, SessionUpdate,
+    SetSessionModeRequest, TerminalExitStatus, TerminalOutputRequest, TerminalOutputResponse,
+    TextContent, ToolCall, ToolCallContent, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
+    WaitForTerminalExitRequest, WaitForTerminalExitResponse, WriteTextFileRequest,
     WriteTextFileResponse,
 };
 use anyhow::{anyhow, Context as _};
@@ -28,9 +31,14 @@ use crate::events::{AgentCommand, AgentEvent, AgentMessage, AgentModeInfo, Agent
 use crate::fs::{FsReadResult, FsWriteRequest, FsWriteResult};
 use crate::mcp_config::resolve_mcp_servers;
 use crate::session::{AgentSessionId, AgentSessionInfo};
+use crate::terminal::TerminalCreateRequest;
 
 pub type FsReadFn = Arc<dyn Fn(PathBuf) -> FsReadResult + Send + Sync>;
 pub type FsWriteFn = Arc<dyn Fn(FsWriteRequest) -> FsWriteResult + Send + Sync>;
+
+pub use crate::terminal::{
+    TerminalCreateFn, TerminalKillFn, TerminalOutputFn, TerminalReleaseFn, TerminalWaitExitFn,
+};
 
 /// Configuration for spawning a local ACP agent process.
 #[derive(Debug, Clone)]
@@ -89,13 +97,29 @@ impl AgentRuntime {
         config: AgentConfig,
         fs_read: FsReadFn,
         fs_write: FsWriteFn,
+        terminal_create: TerminalCreateFn,
+        terminal_output: TerminalOutputFn,
+        terminal_wait_exit: TerminalWaitExitFn,
+        terminal_kill: TerminalKillFn,
+        terminal_release: TerminalReleaseFn,
     ) -> (AgentRuntimeHandle, UnboundedReceiver<AgentEvent>) {
         let (events_tx, events_rx) = unbounded_channel();
         let (cmd_tx, cmd_rx) = unbounded_channel();
 
         tokio::task::spawn(async move {
-            if let Err(err) =
-                run_runtime(config, fs_read, fs_write, events_tx.clone(), cmd_rx).await
+            if let Err(err) = run_runtime(
+                config,
+                fs_read,
+                fs_write,
+                terminal_create,
+                terminal_output,
+                terminal_wait_exit,
+                terminal_kill,
+                terminal_release,
+                events_tx.clone(),
+                cmd_rx,
+            )
+            .await
             {
                 let _ = events_tx.send(AgentEvent::Error {
                     text: err.to_string(),
@@ -114,6 +138,11 @@ async fn run_runtime(
     config: AgentConfig,
     fs_read: FsReadFn,
     fs_write: FsWriteFn,
+    terminal_create: TerminalCreateFn,
+    terminal_output: TerminalOutputFn,
+    terminal_wait_exit: TerminalWaitExitFn,
+    terminal_kill: TerminalKillFn,
+    terminal_release: TerminalReleaseFn,
     events_tx: UnboundedSender<AgentEvent>,
     mut cmd_rx: UnboundedReceiver<AgentCommand>,
 ) -> anyhow::Result<()> {
@@ -130,6 +159,11 @@ async fn run_runtime(
     let events = events_tx.clone();
     let fs_read_cb = fs_read.clone();
     let fs_write_cb = fs_write.clone();
+    let terminal_create_cb = terminal_create.clone();
+    let terminal_output_cb = terminal_output.clone();
+    let terminal_wait_exit_cb = terminal_wait_exit.clone();
+    let terminal_kill_cb = terminal_kill.clone();
+    let terminal_release_cb = terminal_release.clone();
     let pending_cursor: Arc<Mutex<HashMap<u64, CursorResponder>>> = Arc::new(Mutex::new(HashMap::new()));
     let next_cursor_id: Arc<Mutex<u64>> = Arc::new(Mutex::new(0));
     let pending_permission: Arc<Mutex<HashMap<u64, PermissionResponder>>> =
@@ -229,6 +263,122 @@ async fn run_runtime(
                                 responder.respond_with_internal_error("write rejected by user")
                             }
                             FsWriteResult::Error(err) => responder.respond_with_internal_error(err),
+                        }
+                    }
+                }
+            },
+            acp::on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let terminal_create = terminal_create_cb.clone();
+                move |request: CreateTerminalRequest,
+                      responder: acp::Responder<CreateTerminalResponse>,
+                      _connection| {
+                    let terminal_create = terminal_create.clone();
+                    async move {
+                        let result = terminal_create(TerminalCreateRequest {
+                            command: request.command,
+                            args: request.args,
+                            env: request
+                                .env
+                                .into_iter()
+                                .map(|entry| (entry.name, entry.value))
+                                .collect(),
+                            cwd: request.cwd,
+                            output_byte_limit: request.output_byte_limit,
+                        });
+                        match result {
+                            Ok(terminal_id) => {
+                                responder.respond(CreateTerminalResponse::new(terminal_id))
+                            }
+                            Err(err) => responder.respond_with_internal_error(err),
+                        }
+                    }
+                }
+            },
+            acp::on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let terminal_output = terminal_output_cb.clone();
+                move |request: TerminalOutputRequest,
+                      responder: acp::Responder<TerminalOutputResponse>,
+                      _connection| {
+                    let terminal_output = terminal_output.clone();
+                    async move {
+                        let terminal_id = request.terminal_id.to_string();
+                        let snapshot = terminal_output(terminal_id);
+                        let mut response = TerminalOutputResponse::new(
+                            snapshot.output,
+                            snapshot.truncated,
+                        );
+                        if let Some(code) = snapshot.exit_code {
+                            response = response.exit_status(
+                                TerminalExitStatus::new().exit_code(code as u32),
+                            );
+                        }
+                        responder.respond(response)
+                    }
+                }
+            },
+            acp::on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let terminal_wait_exit = terminal_wait_exit_cb.clone();
+                move |request: WaitForTerminalExitRequest,
+                      responder: acp::Responder<WaitForTerminalExitResponse>,
+                      _connection| {
+                    let terminal_wait_exit = terminal_wait_exit.clone();
+                    async move {
+                        let terminal_id = request.terminal_id.to_string();
+                        match terminal_wait_exit(terminal_id) {
+                            Ok(result) => {
+                                let mut status = TerminalExitStatus::new();
+                                if let Some(code) = result.exit_code {
+                                    status = status.exit_code(code as u32);
+                                }
+                                if let Some(signal) = result.signal {
+                                    status = status.signal(signal.to_string());
+                                }
+                                responder.respond(WaitForTerminalExitResponse::new(status))
+                            }
+                            Err(err) => responder.respond_with_internal_error(err),
+                        }
+                    }
+                }
+            },
+            acp::on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let terminal_kill = terminal_kill_cb.clone();
+                move |request: KillTerminalRequest,
+                      responder: acp::Responder<KillTerminalResponse>,
+                      _connection| {
+                    let terminal_kill = terminal_kill.clone();
+                    async move {
+                        match terminal_kill(request.terminal_id.to_string()) {
+                            Ok(()) => responder.respond(KillTerminalResponse::new()),
+                            Err(err) => responder.respond_with_internal_error(err),
+                        }
+                    }
+                }
+            },
+            acp::on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let terminal_release = terminal_release_cb.clone();
+                move |request: ReleaseTerminalRequest,
+                      responder: acp::Responder<ReleaseTerminalResponse>,
+                      _connection| {
+                    let terminal_release = terminal_release.clone();
+                    async move {
+                        match terminal_release(request.terminal_id.to_string()) {
+                            Ok(()) => responder.respond(ReleaseTerminalResponse::new()),
+                            Err(err) => responder.respond_with_internal_error(err),
                         }
                     }
                 }
@@ -357,9 +507,13 @@ async fn run_runtime(
             let pending_permission = pending_permission.clone();
             let debug_logging = debug_logging;
             async move {
-                let capabilities = ClientCapabilities::new().fs(FileSystemCapabilities::new()
-                    .read_text_file(true)
-                    .write_text_file(true));
+                let capabilities = ClientCapabilities::new()
+                    .fs(
+                        FileSystemCapabilities::new()
+                            .read_text_file(true)
+                            .write_text_file(true),
+                    )
+                    .terminal(true);
 
                 let init_response = connection
                     .send_request(
@@ -891,6 +1045,8 @@ fn handle_cursor_notification(
                     title: request.description,
                     status: format!("{:?}", request.subagent_type),
                     detail,
+                    shell_command: None,
+                    terminal_id: None,
                 }));
             }
         }
@@ -1063,10 +1219,16 @@ fn format_tool_call_detail(call: &ToolCall) -> Option<String> {
         parts.push(content);
     }
     if let Some(raw_input) = &call.raw_input {
-        parts.push(format!("input: {}", pretty_json(raw_input)));
+        if extract_shell_command(raw_input, &call.title).is_none() {
+            parts.push(format!("input: {}", pretty_json(raw_input)));
+        }
     }
     if let Some(raw_output) = &call.raw_output {
-        parts.push(format!("output: {}", pretty_json(raw_output)));
+        if let Some(text) = extract_tool_output(raw_output) {
+            parts.push(text);
+        } else {
+            parts.push(format!("output: {}", pretty_json(raw_output)));
+        }
     }
     if parts.is_empty() {
         None
@@ -1084,9 +1246,7 @@ fn format_tool_call_content(content: &[ToolCallContent]) -> String {
                 other => Some(content_block_text(other)),
             },
             ToolCallContent::Diff(diff) => Some(format!("diff: {}", diff.path.display())),
-            ToolCallContent::Terminal(terminal) => {
-                Some(format!("terminal: {}", terminal.terminal_id))
-            }
+            ToolCallContent::Terminal(_) => None,
             _ => None,
         })
         .collect::<Vec<_>>()
@@ -1103,7 +1263,50 @@ fn map_tool_call_message(call: &ToolCall) -> AgentMessage {
         title: call.title.clone(),
         status: format_tool_call_status(call.status),
         detail: format_tool_call_detail(call),
+        shell_command: call
+            .raw_input
+            .as_ref()
+            .and_then(|input| extract_shell_command(input, &call.title)),
+        terminal_id: extract_terminal_id(&call.content),
     }
+}
+
+fn extract_shell_command(raw_input: &Value, title: &str) -> Option<String> {
+    for key in ["command", "cmd", "script"] {
+        if let Some(command) = raw_input.get(key).and_then(Value::as_str) {
+            if !command.is_empty() {
+                return Some(command.to_string());
+            }
+        }
+    }
+    let trimmed = title.trim();
+    if trimmed.starts_with('`') && trimmed.ends_with('`') && trimmed.len() > 2 {
+        return Some(trimmed[1..trimmed.len() - 1].to_string());
+    }
+    None
+}
+
+fn extract_terminal_id(content: &[ToolCallContent]) -> Option<String> {
+    content.iter().find_map(|entry| match entry {
+        ToolCallContent::Terminal(terminal) => Some(terminal.terminal_id.to_string()),
+        _ => None,
+    })
+}
+
+fn extract_tool_output(raw_output: &Value) -> Option<String> {
+    if let Some(text) = raw_output.as_str() {
+        if !text.is_empty() {
+            return Some(text.to_string());
+        }
+    }
+    for key in ["output", "stdout", "stderr", "result", "content", "text"] {
+        if let Some(text) = raw_output.get(key).and_then(Value::as_str) {
+            if !text.is_empty() {
+                return Some(text.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn map_tool_call_update(update: ToolCallUpdate) -> AgentEvent {
@@ -1121,6 +1324,14 @@ fn map_tool_call_update(update: ToolCallUpdate) -> AgentEvent {
         ..
     } = update;
 
+    let shell_command = raw_input
+        .as_ref()
+        .and_then(|input| extract_shell_command(input, title.as_deref().unwrap_or("")));
+    let terminal_id = content
+        .as_ref()
+        .and_then(|entries| extract_terminal_id(entries));
+    let agent_output = raw_output.as_ref().and_then(extract_tool_output);
+
     let detail = {
         let mut parts = Vec::new();
         if let Some(content) = content {
@@ -1130,10 +1341,16 @@ fn map_tool_call_update(update: ToolCallUpdate) -> AgentEvent {
             }
         }
         if let Some(raw_input) = raw_input {
-            parts.push(format!("input: {}", pretty_json(&raw_input)));
+            if shell_command.is_none() {
+                parts.push(format!("input: {}", pretty_json(&raw_input)));
+            }
         }
         if let Some(raw_output) = raw_output {
-            parts.push(format!("output: {}", pretty_json(&raw_output)));
+            if let Some(text) = extract_tool_output(&raw_output) {
+                parts.push(text);
+            } else {
+                parts.push(format!("output: {}", pretty_json(&raw_output)));
+            }
         }
         if parts.is_empty() {
             None
@@ -1147,6 +1364,9 @@ fn map_tool_call_update(update: ToolCallUpdate) -> AgentEvent {
         title,
         status: status.map(format_tool_call_status),
         detail,
+        shell_command,
+        terminal_id,
+        agent_output,
     }
 }
 
@@ -1186,6 +1406,26 @@ mod tests {
         assert!(matches!(&blocks[0], ContentBlock::Text(_)));
         assert!(matches!(&blocks[1], ContentBlock::ResourceLink(_)));
         assert!(matches!(&blocks[2], ContentBlock::Text(text) if text.text.contains("fn main()")));
+    }
+
+    #[test]
+    fn map_tool_call_update_extracts_shell_command() {
+        use agent_client_protocol::schema::{
+            ToolCallId, ToolCallUpdate, ToolCallUpdateFields,
+        };
+
+        let update = ToolCallUpdate::new(
+            ToolCallId::new("call-1"),
+            ToolCallUpdateFields::new().raw_input(json!({"command": "echo hello world"})),
+        );
+        let event = map_tool_call_update(update);
+        assert!(matches!(
+            event,
+            AgentEvent::ToolCallUpdated {
+                shell_command: Some(command),
+                ..
+            } if command == "echo hello world"
+        ));
     }
 
     #[test]

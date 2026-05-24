@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -14,6 +15,7 @@ use alacritty_terminal::tty::{self, Shell};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::events::TerminalEvent;
+use crate::grid_text;
 use crate::session::TerminalId;
 
 struct TermSize {
@@ -125,6 +127,17 @@ impl SessionHandle {
     pub fn display_offset(&self) -> usize {
         self.with_term(|term| term.grid().display_offset())
     }
+
+    /// Plain-text snapshot of scrollback and visible screen (for ACP terminal/output).
+    pub fn plain_text_output(&self) -> String {
+        self.with_term(|term| {
+            grid_text::all_lines(term)
+                .into_iter()
+                .map(|(_, line)| line)
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+    }
 }
 
 pub struct LiveSession {
@@ -145,6 +158,7 @@ impl LiveSession {
 pub struct TerminalSpawnConfig {
     pub scrollback_lines: usize,
     pub shell: Option<Shell>,
+    pub env: HashMap<String, String>,
 }
 
 pub fn spawn_live_session(
@@ -169,6 +183,7 @@ pub fn spawn_live_session(
     let options = tty::Options {
         shell: config.shell.clone(),
         working_directory: cwd,
+        env: config.env.clone(),
         drain_on_exit: true,
         ..Default::default()
     };

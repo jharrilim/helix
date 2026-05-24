@@ -82,23 +82,35 @@ fn apply_event(editor: &mut Editor, event: &TerminalEvent) {
             with_controller_store(editor, &id.0, handle.clone());
         }
         TerminalEvent::Updated { id } => {
-            let scroll_pinned = editor
-                .terminal
-                .session_mut(&id.0)
-                .map(|session| session.scroll_pinned)
-                .unwrap_or(true);
+            let is_agent_shell = editor.agent.shell_block_index.contains_key(&id.0)
+                || editor.agent.tool_shell_index.values().any(|linked| linked == &id.0);
+            let scroll_pinned = if is_agent_shell {
+                true
+            } else {
+                editor
+                    .terminal
+                    .session_mut(&id.0)
+                    .map(|session| session.scroll_pinned)
+                    .unwrap_or(true)
+            };
 
             if scroll_pinned {
                 if let Some(handle) = session_handle_for(&id.0) {
                     handle.scroll(TerminalScroll::Bottom);
                 }
-                if let Some(session) = editor.terminal.session_mut(&id.0) {
-                    session.scroll_offset = 0;
+                if !is_agent_shell {
+                    if let Some(session) = editor.terminal.session_mut(&id.0) {
+                        session.scroll_offset = 0;
+                    }
                 }
             } else if let Some(handle) = session_handle_for(&id.0) {
                 if let Some(session) = editor.terminal.session_mut(&id.0) {
                     session.scroll_offset = handle.display_offset();
                 }
+            }
+
+            if is_agent_shell {
+                crate::agent::on_terminal_updated(editor, &id.0);
             }
 
             helix_event::request_redraw();
@@ -109,13 +121,17 @@ fn apply_event(editor: &mut Editor, event: &TerminalEvent) {
             }
             helix_event::request_redraw();
         }
-        TerminalEvent::Exited { id, code, signal: _ } => {
-            if let Some(session) = editor.terminal.session_mut(&id.0) {
+        TerminalEvent::Exited { id, code, signal } => {
+            if editor.agent.shell_block_index.contains_key(&id.0)
+                || editor.agent.tool_shell_index.values().any(|linked| linked == &id.0)
+            {
+                crate::agent::on_terminal_exited(editor, &id.0, *code, *signal);
+            } else if let Some(session) = editor.terminal.session_mut(&id.0) {
                 session.exit_status = *code;
             }
 
             let auto_close = editor.integrated_terminal_settings().auto_close_on_exit;
-            if auto_close {
+            if auto_close && editor.terminal.session_mut(&id.0).is_some() {
                 crate::commands::terminal::close_terminal_session(editor, &id.0);
             }
 

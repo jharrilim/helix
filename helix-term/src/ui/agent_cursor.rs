@@ -6,7 +6,7 @@ use helix_acp::{
     METHOD_ASK_QUESTION, METHOD_CREATE_PLAN,
 };
 use helix_view::{
-    agent::{AgentModeMeta, AgentQuestionOption, AgentTranscriptEntry},
+    agent::{AgentBlockKind, AgentModeMeta, AgentQuestionOption},
     Editor,
 };
 use serde_json::{json, Value};
@@ -276,7 +276,7 @@ fn show_create_plan(
                         .as_ref()
                         .map(|name| format!("Plan accepted: {name}"))
                         .unwrap_or_else(|| "Plan accepted".into());
-                    editor.agent.push_entry(AgentTranscriptEntry::System { text: label });
+                    editor.agent.push_block(AgentBlockKind::System { text: label });
                 }
                 editor.set_status("agent plan reviewed");
             }

@@ -120,7 +120,10 @@ pub fn trigger_auto_completion(editor: &Editor, trigger_char_only: bool) {
     if !config.auto_completion {
         return;
     }
-    let (view, doc): (&helix_view::View, &helix_view::Document) = current_ref!(editor);
+    let Some(view) = editor.tree.try_get(editor.tree.focus) else {
+        return;
+    };
+    let doc = &editor.documents[&view.doc];
     let mut text = doc.text().slice(..);
     let cursor = doc.selection(view.id).primary().cursor(text);
     text = doc.text().slice(..cursor);

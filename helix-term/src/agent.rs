@@ -22,11 +22,27 @@ where
     f(&mut AGENT_CONTROLLER.wait().lock().unwrap())
 }
 
+pub fn on_terminal_updated(editor: &mut helix_view::Editor, terminal_id: &str) {
+    with_controller(|controller| controller.on_terminal_updated(editor, terminal_id));
+}
+
+pub fn on_terminal_exited(
+    editor: &mut helix_view::Editor,
+    terminal_id: &str,
+    code: Option<i32>,
+    signal: Option<i32>,
+) {
+    with_controller(|controller| {
+        controller.on_terminal_exited(editor, terminal_id, code, signal);
+    });
+}
+
 /// Start the ACP runtime if needed, without creating a new agent session.
 pub fn ensure_runtime_started(
     editor: &helix_view::Editor,
     jobs: &mut crate::job::Jobs,
 ) -> anyhow::Result<()> {
+    crate::terminal::ensure_headless_runtime_started(editor, jobs)?;
     with_controller(|controller| {
         if !controller.is_running() {
             controller.start(editor)?;

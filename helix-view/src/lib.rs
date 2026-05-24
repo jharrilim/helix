@@ -73,7 +73,10 @@ pub fn align_view(doc: &mut Document, view: &View, align: Align) {
     doc.set_view_offset(view.id, view_offset);
 }
 
-pub use agent::{AgentFocus, AgentSessionMeta, AgentSettings, AgentState, AgentTranscriptEntry};
+pub use agent::{
+    AgentBlock, AgentBlockKind, AgentFocus, AgentSessionMeta, AgentSettings, AgentState,
+    ShellBlockStatus,
+};
 pub use terminal::{TerminalFocus, TerminalSettings, TerminalState};
 pub use document::Document;
 pub use editor::Editor;

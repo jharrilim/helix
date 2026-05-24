@@ -27,6 +27,20 @@ pub fn session_handle(id: &str) -> Option<SessionHandle> {
     with_controller(|controller| controller.session_handle(id).cloned())
 }
 
+/// Start the terminal runtime for agent shell blocks (does not require integrated terminal UI).
+pub fn ensure_headless_runtime_started(
+    editor: &helix_view::Editor,
+    jobs: &mut crate::job::Jobs,
+) -> anyhow::Result<()> {
+    with_controller(|controller| {
+        if !controller.is_running() {
+            controller.start(editor)?;
+            controller.spawn_event_listener(jobs);
+        }
+        Ok(())
+    })
+}
+
 /// Start the terminal runtime if needed.
 pub fn ensure_runtime_started(
     editor: &helix_view::Editor,

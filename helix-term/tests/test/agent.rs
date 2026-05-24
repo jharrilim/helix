@@ -372,7 +372,7 @@ async fn agent_debug_event_stores_line_without_transcript_entry() -> anyhow::Res
         "debug line should be stored"
     );
     assert!(
-        app.editor.agent.transcript.is_empty(),
+        app.editor.agent.blocks.is_empty(),
         "debug events should not append transcript entries"
     );
 
@@ -381,7 +381,7 @@ async fn agent_debug_event_stores_line_without_transcript_entry() -> anyhow::Res
 
 #[tokio::test(flavor = "multi_thread")]
 async fn agent_tool_call_updates_merge_by_id() -> anyhow::Result<()> {
-    use helix_view::agent::AgentTranscriptEntry;
+    use helix_view::agent::AgentBlockKind;
 
     let mut app = AppBuilder::new().build()?;
 
@@ -393,6 +393,8 @@ async fn agent_tool_call_updates_merge_by_id() -> anyhow::Result<()> {
             title: "Read file".into(),
             status: "in_progress".into(),
             detail: None,
+            shell_command: None,
+            terminal_id: None,
         }),
     );
     apply_test_agent_event(
@@ -402,24 +404,60 @@ async fn agent_tool_call_updates_merge_by_id() -> anyhow::Result<()> {
             title: None,
             status: Some("completed".into()),
             detail: Some("done".into()),
+            shell_command: None,
+            terminal_id: None,
+            agent_output: None,
         },
     );
 
-    assert_eq!(app.editor.agent.transcript.len(), 1);
-    let AgentTranscriptEntry::ToolCall {
+    assert_eq!(app.editor.agent.blocks.len(), 1);
+    let AgentBlockKind::Tool {
         title,
         status,
         detail,
         expanded,
         ..
-    } = &app.editor.agent.transcript[0]
+    } = &app.editor.agent.blocks[0].kind
     else {
-        panic!("expected single tool call entry");
+        panic!("expected single tool call block");
     };
     assert_eq!(title, "Read file");
     assert_eq!(status, "completed");
     assert_eq!(detail.as_deref(), Some("done"));
     assert!(!expanded);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_assistant_chunks_create_separate_blocks() -> anyhow::Result<()> {
+    use helix_view::agent::AgentBlockKind;
+
+    let mut app = AppBuilder::new().build()?;
+    open_agent_panel(&mut app);
+
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::Message(AgentMessage::Assistant {
+            text: "first".into(),
+        }),
+    );
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::Message(AgentMessage::Assistant {
+            text: "second".into(),
+        }),
+    );
+
+    assert_eq!(app.editor.agent.blocks.len(), 2);
+    assert!(matches!(
+        app.editor.agent.blocks[0].kind,
+        AgentBlockKind::Assistant { .. }
+    ));
+    assert!(matches!(
+        app.editor.agent.blocks[1].kind,
+        AgentBlockKind::Assistant { .. }
+    ));
 
     Ok(())
 }

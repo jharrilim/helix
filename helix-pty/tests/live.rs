@@ -48,3 +48,43 @@ async fn live_session_runs_shell_and_exits() {
     handle.send(TerminalCommand::Kill { id: id.clone() });
     let _ = collect_events(&mut rx, Duration::from_secs(2)).await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn spawn_program_runs_command() {
+    let (handle, mut rx) = TerminalRuntime::spawn(TerminalConfig::default());
+    let id = TerminalId::from("test-program".to_string());
+
+    handle.send(TerminalCommand::SpawnProgram {
+        id: id.clone(),
+        command: "/bin/sh".into(),
+        args: vec!["-c".into(), "echo helix-pty-program".into()],
+        env: Vec::new(),
+        cwd: std::env::current_dir().ok(),
+        rows: 24,
+        cols: 80,
+    });
+
+    let mut events = collect_events(&mut rx, Duration::from_secs(3)).await;
+    let spawned = events
+        .iter()
+        .find_map(|event| match event {
+            TerminalEvent::Spawned { handle, .. } => Some(handle.clone()),
+            _ => None,
+        })
+        .expect("expected Spawned event");
+
+    let mut output = String::new();
+    for _ in 0..30 {
+        output = spawned.plain_text_output();
+        if output.contains("helix-pty-program") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(
+        output.contains("helix-pty-program"),
+        "expected command output in grid, got {output:?}"
+    );
+
+    handle.send(TerminalCommand::Kill { id });
+}

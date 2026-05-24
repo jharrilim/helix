@@ -69,11 +69,11 @@ behavior to Helix.
 | `session/request_permission` | Agent -> Client | Supported | Interactive picker by default; optional auto-approve via config. |
 | `fs/read_text_file` | Agent -> Client | Supported | Advertised through `fs.readTextFile` and routed to the caller-provided `FsReadFn`. |
 | `fs/write_text_file` | Agent -> Client | Supported | Advertised through `fs.writeTextFile` and routed to the caller-provided `FsWriteFn`; conflicts and errors are returned as JSON-RPC errors. |
-| `terminal/create` | Agent -> Client | Not implemented | Terminal capabilities are not advertised. |
-| `terminal/output` | Agent -> Client | Not implemented | Terminal capabilities are not advertised. |
-| `terminal/wait_for_exit` | Agent -> Client | Not implemented | Terminal capabilities are not advertised. |
-| `terminal/kill` | Agent -> Client | Not implemented | Terminal capabilities are not advertised. |
-| `terminal/release` | Agent -> Client | Not implemented | Terminal capabilities are not advertised. |
+| `terminal/create` | Agent -> Client | Supported | Headless agent shell blocks via `helix-pty` `SpawnProgram`. |
+| `terminal/output` | Agent -> Client | Supported | Plain-text grid snapshot with byte-limit truncation. |
+| `terminal/wait_for_exit` | Agent -> Client | Supported | Blocks until PTY exit; completes pending waiters on main thread. |
+| `terminal/kill` | Agent -> Client | Supported | Sends `TerminalCommand::Kill`. |
+| `terminal/release` | Agent -> Client | Supported | Kill + remove agent shell block registry entry. |
 | prompt text content | Client -> Agent | Supported | `SendPrompt` sends text plus optional file link and selection context. |
 | prompt image content | Client -> Agent | Not implemented | Image prompt capability is not advertised or modeled. |
 | prompt audio content | Client -> Agent | Not implemented | Audio prompt capability is not advertised or modeled. |
