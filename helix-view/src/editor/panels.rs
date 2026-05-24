@@ -1,0 +1,209 @@
+use std::path::PathBuf;
+
+use crate::ViewId;
+
+use super::Editor;
+
+impl Editor {
+    pub fn agent_settings(&self) -> crate::agent::AgentSettings {
+        self.config.load().agent.clone()
+    }
+
+    pub fn integrated_terminal_settings(&self) -> crate::terminal::TerminalSettings {
+        self.config.load().integrated_terminal.clone()
+    }
+
+    fn open_terminal_panel_id(&self) -> Option<ViewId> {
+        self.terminal.panel_id
+    }
+
+    fn sync_terminal_panel_session_id(&mut self) {
+        let Some(panel_id) = self.terminal.panel_id else {
+            return;
+        };
+        let Some(active) = self.terminal.active_session.clone() else {
+            return;
+        };
+        if let Some(panel) = self.tree.terminal_panel_mut(panel_id) {
+            panel.session_id = active;
+        }
+    }
+
+    pub fn switch_terminal_session(&mut self, session_id: &str) -> bool {
+        if !self.terminal.switch_session(session_id) {
+            return false;
+        }
+        self.sync_terminal_panel_session_id();
+        self._refresh();
+        true
+    }
+
+    /// Agent and terminal stack in one column; either splits beside the editor alone.
+    fn auxiliary_split_layout(&self, pair_with_other_auxiliary: bool) -> crate::tree::Layout {
+        if pair_with_other_auxiliary {
+            crate::tree::Layout::Horizontal
+        } else {
+            crate::tree::Layout::Vertical
+        }
+    }
+
+    pub fn open_agent_panel(&mut self) {
+        if let Some(panel_id) = self.agent.panel_id {
+            if !self.tree.is_agent_panel(self.tree.focus) {
+                self.enter_normal_mode();
+                let (view, doc) = current!(self);
+                doc.append_changes_to_history(view);
+            }
+            self.tree.focus = panel_id;
+            self.agent.focus = crate::agent::AgentFocus::Normal;
+            return;
+        }
+
+        let terminal_open = self.open_terminal_panel_id().is_some();
+        let layout = self.auxiliary_split_layout(terminal_open);
+        if let Some(terminal_panel) = self.open_terminal_panel_id() {
+            self.tree.focus = terminal_panel;
+        }
+
+        let panel_id = self.tree.split_agent_panel(layout);
+        self.agent.panel_id = Some(panel_id);
+        self.agent.focus = crate::agent::AgentFocus::Normal;
+        self.tree.focus = panel_id;
+        self._refresh();
+    }
+
+    pub fn close_agent_panel(&mut self) {
+        let Some(panel_id) = self.agent.panel_id.take() else {
+            return;
+        };
+        if self.tree.focus == panel_id {
+            self.tree.focus = self.tree.prev();
+        }
+        if self.tree.contains(panel_id) {
+            self.tree.remove(panel_id);
+        }
+        self.agent.focus = crate::agent::AgentFocus::Normal;
+        self._refresh();
+    }
+
+    pub fn focus_agent_panel(&mut self) {
+        if let Some(panel_id) = self.agent.panel_id {
+            if !self.tree.is_agent_panel(self.tree.focus) {
+                self.enter_normal_mode();
+                let (view, doc) = current!(self);
+                doc.append_changes_to_history(view);
+            }
+            self.tree.focus = panel_id;
+            self.agent.focus = crate::agent::AgentFocus::Normal;
+        }
+    }
+
+    pub fn focus_editor_from_agent(&mut self) {
+        self.agent.focus = crate::agent::AgentFocus::Normal;
+        if self.tree.is_agent_panel(self.tree.focus) {
+            self.tree.focus = self.tree.prev();
+        }
+    }
+
+    pub fn agent_panel_focused(&self) -> bool {
+        self.agent.panel_id.is_some_and(|id| {
+            self.tree.focus == id && self.agent.focus == crate::agent::AgentFocus::Insert
+        })
+    }
+
+    pub fn open_terminal_panel(&mut self, session_id: String) {
+        if self.terminal.panel_id.is_some() {
+            if !self.tree.is_terminal_panel(self.tree.focus) {
+                self.enter_normal_mode();
+                let (view, doc) = current!(self);
+                doc.append_changes_to_history(view);
+            }
+            self.terminal.switch_session(&session_id);
+            self.sync_terminal_panel_session_id();
+            if let Some(panel_id) = self.terminal.panel_id {
+                self.tree.focus = panel_id;
+            }
+            self.terminal.focus = crate::terminal::TerminalFocus::Normal;
+            self._refresh();
+            return;
+        }
+
+        let cwd = self
+            .last_cwd
+            .clone()
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."));
+        if !self.terminal.sessions.contains_key(&session_id) {
+            self.terminal.insert_session(session_id.clone(), cwd);
+        } else if !self.terminal.session_order.contains(&session_id) {
+            self.terminal.session_order.push(session_id.clone());
+        }
+        self.terminal.active_session = Some(session_id.clone());
+
+        let agent_open = self.agent.panel_id.is_some();
+        let layout = self.auxiliary_split_layout(agent_open);
+        if let Some(agent_panel) = self.agent.panel_id {
+            self.tree.focus = agent_panel;
+        }
+
+        let panel_id = self.tree.split_terminal_panel(layout, session_id.clone());
+        self.terminal.panel_id = Some(panel_id);
+        self.terminal.focus = crate::terminal::TerminalFocus::Normal;
+        self.tree.focus = panel_id;
+        self._refresh();
+    }
+
+    pub fn close_terminal_panel(&mut self) {
+        let Some(panel_id) = self.terminal.panel_id.take() else {
+            return;
+        };
+
+        if self.tree.focus == panel_id {
+            self.tree.focus = self.tree.prev();
+        }
+        if self.tree.contains(panel_id) {
+            self.tree.remove(panel_id);
+        }
+        self.terminal.focus = crate::terminal::TerminalFocus::Normal;
+        self._refresh();
+    }
+
+    pub fn remove_terminal_tab(&mut self, session_id: &str) -> bool {
+        let close_panel = self.terminal.remove_session(session_id);
+        if close_panel {
+            self.close_terminal_panel();
+        } else {
+            self.sync_terminal_panel_session_id();
+            self._refresh();
+        }
+        close_panel
+    }
+
+    pub fn focus_terminal_panel(&mut self) {
+        let Some(panel_id) = self.terminal.panel_id else {
+            return;
+        };
+
+        if !self.tree.is_terminal_panel(self.tree.focus) {
+            self.enter_normal_mode();
+            let (view, doc) = current!(self);
+            doc.append_changes_to_history(view);
+        }
+        self.tree.focus = panel_id;
+        self.terminal.focus = crate::terminal::TerminalFocus::Normal;
+    }
+
+    pub fn focus_editor_from_terminal(&mut self) {
+        self.terminal.focus = crate::terminal::TerminalFocus::Normal;
+        if self.tree.is_terminal_panel(self.tree.focus) {
+            self.tree.focus = self.tree.prev();
+        }
+    }
+
+    pub fn terminal_panel_focused(&self) -> bool {
+        self.terminal.panel_id.is_some_and(|panel_id| {
+            self.tree.focus == panel_id
+                && self.terminal.focus == crate::terminal::TerminalFocus::Insert
+        })
+    }
+}
