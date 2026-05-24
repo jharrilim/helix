@@ -196,28 +196,29 @@ without rendering.
 
 ### Selection and clipboard
 
-- [ ] **Yank scrollback** — Normal/Select mode copy to Helix register + system
+- [x] **Yank scrollback** — Normal/Select mode copy to Helix register + system
   clipboard (where supported).
   - Files: [`helix-term/src/ui/terminal.rs`](../helix-term/src/ui/terminal.rs)
-- [ ] **Paste** — `"`+`p` / `Shift-Insert` in Insert sends clipboard bytes to PTY.
-- [ ] **Mouse selection** — Drag to select in scrollback (Normal); release yanks.
+- [x] **Paste** — `"`+`p` / `Shift-Insert` in Insert sends clipboard bytes to PTY.
+- [x] **Mouse selection** — Drag to select in scrollback (Normal); release yanks.
 
 ### Navigation and layout
 
-- [ ] **Focus movement** — Terminals participate in `:focus {direction}` and
+- [x] **Focus movement** — Terminals participate in `:focus {direction}` and
   `Ctrl-w` navigation on equal footing with editor buffers and agent panel.
-- [ ] **Open cwd policy** — `:terminal-open --cwd path`; default follows active
+- [x] **Open cwd policy** — `:terminal-open --cwd path`; default follows active
   buffer directory.
-- [ ] **Send from editor** — `:terminal-send` sends selection or current line to
+- [x] **Send from editor** — `:terminal-send` sends selection or current line to
   focused terminal (append `\n` optionally).
   - Files: [`helix-term/src/commands/terminal.rs`](../helix-term/src/commands/terminal.rs)
 
 ### Search and polish
 
-- [ ] **Scrollback search** — `/` and `n`/`N` in Normal (picker or incremental).
-- [ ] **Panel header** — Title (OSC), cwd, mode indicator `[N]`/`[I]`, exit code.
-- [ ] **Bell** — Optional flash status line on `\a` (respect `[editor.terminal]`
+- [x] **Scrollback search** — `/` and `n`/`N` in Normal (picker or incremental).
+- [x] **Panel header** — Title (OSC), cwd, mode indicator `[N]`/`[I]`, exit code.
+- [x] **Bell** — Optional flash status line on `\a` (respect `[editor.terminal]`
   bell config if added).
+- [x] **Resizing** - Ensure that the terminal resizes correctly when the window is resized.
 
 **Acceptance:** Developer workflow: edit code → `Space t o` → run tests → yank
 error output back into buffer with terminal selection.
@@ -228,14 +229,14 @@ error output back into buffer with terminal selection.
 
 ### Session management
 
-- [ ] **Terminal registry** — `BTreeMap<TerminalId, TerminalSession>` in
+- [x] **Terminal registry** — `BTreeMap<TerminalId, TerminalSession>` in
   `TerminalState`; stable ids for ACP/DAP.
   - Files: [`helix-view/src/terminal.rs`](../helix-view/src/terminal.rs),
     `helix-pty/src/runtime.rs`
-- [ ] **New / list / switch** — `:terminal-new`, `:terminal-list` (picker),
+- [x] **New / list / switch** — `:terminal-new`, `:terminal-list` (picker),
   `:terminal-focus {id}`, `Space t n`, `Space t l`.
   - Files: [`helix-term/src/commands/terminal.rs`](../helix-term/src/commands/terminal.rs)
-- [ ] **Multiple panels** — Several terminal leaves in the split tree, or tabbed
+- [x] **Multiple panels** — Several terminal leaves in the split tree, or tabbed
   container (start with one panel per session; defer tabs if split-only is enough).
 - [ ] **Kill / restart** — `:terminal-kill`, `:terminal-restart`; confirm on
   processes with children.

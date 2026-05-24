@@ -325,9 +325,13 @@ impl Keymaps {
 
         let trie = match trie_node.search(&[*first]) {
             Some(KeyTrie::MappableCommand(ref cmd)) => {
+                self.sticky = None;
+                self.state.clear();
                 return KeymapResult::Matched(cmd.clone());
             }
             Some(KeyTrie::Sequence(ref cmds)) => {
+                self.sticky = None;
+                self.state.clear();
                 return KeymapResult::MatchedSequence(cmds.clone());
             }
             None => return KeymapResult::NotFound,
@@ -345,10 +349,12 @@ impl Keymaps {
             }
             Some(KeyTrie::MappableCommand(cmd)) => {
                 self.state.clear();
+                self.sticky = None;
                 KeymapResult::Matched(cmd.clone())
             }
             Some(KeyTrie::Sequence(cmds)) => {
                 self.state.clear();
+                self.sticky = None;
                 KeymapResult::MatchedSequence(cmds.clone())
             }
             None => KeymapResult::Cancelled(self.state.drain(..).collect()),

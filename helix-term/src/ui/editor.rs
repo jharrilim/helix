@@ -41,6 +41,7 @@ pub struct EditorView {
     on_next_key: Option<(OnKeyCallback, OnKeyCallbackKind)>,
     pseudo_pending: Vec<KeyEvent>,
     agent_window_pending: bool,
+    terminal_window_pending: bool,
     pub(crate) last_insert: (commands::MappableCommand, Vec<InsertEvent>),
     pub(crate) completion: Option<Completion>,
     spinners: ProgressSpinners,
@@ -66,6 +67,7 @@ impl EditorView {
             on_next_key: None,
             pseudo_pending: Vec::new(),
             agent_window_pending: false,
+            terminal_window_pending: false,
             last_insert: (commands::MappableCommand::normal_mode, Vec::new()),
             completion: None,
             spinners: ProgressSpinners::default(),
@@ -1100,6 +1102,31 @@ impl EditorView {
         }
     }
 
+    fn event_with_callbacks(cx: &mut commands::Context) -> EventResult {
+        let callbacks = std::mem::take(&mut cx.callback);
+        if callbacks.is_empty() {
+            EventResult::Consumed(None)
+        } else {
+            EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                for callback in callbacks {
+                    callback(compositor, cx);
+                }
+            })))
+        }
+    }
+
+    fn panel_keymap_passthrough(&self, key: KeyEvent) -> bool {
+        matches!(key, key!(':') | key!(' '))
+            || !self.keymaps.pending().is_empty()
+            || self.keymaps.sticky().is_some()
+    }
+
+    fn panel_keymap_passthrough_without_space(&self, key: KeyEvent) -> bool {
+        matches!(key, key!(':'))
+            || !self.keymaps.pending().is_empty()
+            || self.keymaps.sticky().is_some()
+    }
+
     fn handle_agent_normal_key(&mut self, cxt: &mut commands::Context, key: KeyEvent) -> bool {
         if self.agent_window_pending {
             self.agent_window_pending = false;
@@ -1135,7 +1162,51 @@ impl EditorView {
     }
 
     fn handle_terminal_normal_key(&mut self, cxt: &mut commands::Context, key: KeyEvent) -> bool {
-        crate::ui::terminal::handle_normal_key(cxt.editor, key)
+        if cxt.editor.terminal.tab_menu_active {
+            if crate::ui::terminal_tabs::handle_key(cxt.editor, cxt.jobs, key) {
+                return true;
+            }
+        }
+
+        if self.terminal_window_pending {
+            self.terminal_window_pending = false;
+            match key {
+                key!('w') | ctrl!('w') => cxt.editor.focus_next(),
+                key!('h') | ctrl!('h') | key!(Left) => cxt
+                    .editor
+                    .focus_direction(helix_view::tree::Direction::Left),
+                key!('j') | ctrl!('j') | key!(Down) => cxt
+                    .editor
+                    .focus_direction(helix_view::tree::Direction::Down),
+                key!('k') | ctrl!('k') | key!(Up) => {
+                    cxt.editor.focus_direction(helix_view::tree::Direction::Up)
+                }
+                key!('l') | ctrl!('l') | key!(Right) => cxt
+                    .editor
+                    .focus_direction(helix_view::tree::Direction::Right),
+                key!('q') | ctrl!('q') => {
+                    crate::commands::terminal::close_terminal_panel_editor(cxt.editor);
+                }
+                _ => cxt.editor.set_error("unsupported terminal window command"),
+            }
+            return true;
+        }
+
+        if key == ctrl!('w') {
+            self.terminal_window_pending = true;
+            cxt.editor.set_status("terminal window command");
+            return true;
+        }
+
+        if crate::ui::terminal::handle_normal_key_with_search(cxt.editor, key) {
+            if cxt.editor.terminal.open_search_prompt {
+                cxt.editor.terminal.open_search_prompt = false;
+                crate::ui::terminal::open_search_prompt(cxt);
+            }
+            return true;
+        }
+
+        false
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1526,6 +1597,11 @@ impl Component for EditorView {
                     return EventResult::Consumed(None);
                 }
 
+                if cx.editor.terminal_panel_focused() {
+                    crate::ui::terminal::paste_to_terminal(cx.editor, &contents);
+                    return EventResult::Consumed(None);
+                }
+
                 self.handle_non_key_input(&mut cx);
                 cx.count = cx.editor.count;
                 commands::paste_bracketed_value(&mut cx, contents.clone());
@@ -1560,36 +1636,34 @@ impl Component for EditorView {
                 let terminal_leaf_focused =
                     cx.editor.tree.is_terminal_panel(cx.editor.tree.focus);
                 if cx.editor.agent_panel_focused() {
-                    if crate::ui::agent::handle_key(cx.editor, key) {
-                        return EventResult::Consumed(None);
+                    if !self.panel_keymap_passthrough(key)
+                        && crate::ui::agent::handle_key(cx.editor, key)
+                    {
+                        return Self::event_with_callbacks(&mut cx);
                     }
                 }
                 if cx.editor.terminal_panel_focused() {
-                    if crate::ui::terminal::handle_key(cx.editor, key) {
-                        return EventResult::Consumed(None);
+                    if !self.panel_keymap_passthrough_without_space(key)
+                        && crate::ui::terminal::handle_key(cx.editor, key)
+                    {
+                        return Self::event_with_callbacks(&mut cx);
                     }
                 }
 
                 if agent_leaf_focused && !cx.editor.agent_panel_focused() {
-                    if self.handle_agent_normal_key(&mut cx, key) {
-                        return EventResult::Consumed(None);
-                    }
-
-                    let command_key =
-                        matches!(key, key!(':') | key!(' ')) || !self.keymaps.pending().is_empty();
-                    if !command_key {
+                    if !self.panel_keymap_passthrough(key) {
+                        if self.handle_agent_normal_key(&mut cx, key) {
+                            return Self::event_with_callbacks(&mut cx);
+                        }
                         return EventResult::Consumed(None);
                     }
                 }
 
                 if terminal_leaf_focused && !cx.editor.terminal_panel_focused() {
-                    if self.handle_terminal_normal_key(&mut cx, key) {
-                        return EventResult::Consumed(None);
-                    }
-
-                    let command_key =
-                        matches!(key, key!(':') | key!(' ')) || !self.keymaps.pending().is_empty();
-                    if !command_key {
+                    if !self.panel_keymap_passthrough(key) {
+                        if self.handle_terminal_normal_key(&mut cx, key) {
+                            return Self::event_with_callbacks(&mut cx);
+                        }
                         return EventResult::Consumed(None);
                     }
                 }

@@ -307,6 +307,9 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "o" => terminal_open,
                 "c" => terminal_close,
                 "i" => terminal_insert_mode,
+                "s" => terminal_send,
+                "n" => terminal_new,
+                "l" => terminal_list,
             },
         },
         "z" => { "View"

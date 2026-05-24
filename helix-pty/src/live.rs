@@ -67,6 +67,11 @@ impl EventListener for ChannelListener {
                     signal,
                 });
             }
+            Event::Bell => {
+                let _ = self.tx.send(TerminalEvent::Bell {
+                    id: self.id.clone(),
+                });
+            }
             _ => {}
         }
     }

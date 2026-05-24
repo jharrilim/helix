@@ -1033,6 +1033,13 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> bool {
             delete_word_backward(editor);
             true
         }
+        KeyCode::Char(' ') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            editor.agent.clear_transcript_selection();
+            editor.agent.input.insert(editor.agent.input_cursor, ' ');
+            editor.agent.input_cursor += 1;
+            true
+        }
+        KeyCode::Char(' ') => false,
         KeyCode::Char(c) if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
             editor.agent.clear_transcript_selection();
             editor.agent.input.insert(editor.agent.input_cursor, c);

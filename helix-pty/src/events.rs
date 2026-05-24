@@ -45,6 +45,9 @@ pub enum TerminalEvent {
         code: Option<i32>,
         signal: Option<i32>,
     },
+    Bell {
+        id: TerminalId,
+    },
     Error {
         text: String,
     },
@@ -66,6 +69,7 @@ impl std::fmt::Debug for TerminalEvent {
                 .field("code", code)
                 .field("signal", signal)
                 .finish(),
+            Self::Bell { id } => f.debug_struct("Bell").field("id", id).finish(),
             Self::Error { text } => f.debug_struct("Error").field("text", text).finish(),
         }
     }

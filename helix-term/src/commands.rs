@@ -556,6 +556,9 @@ impl MappableCommand {
         terminal_close, "Close integrated terminal",
         terminal_toggle, "Toggle integrated terminal",
         terminal_insert_mode, "Enter terminal insert mode",
+        terminal_send, "Send editor selection or line to terminal",
+        terminal_new, "Open a new terminal tab",
+        terminal_list, "List and switch terminal tabs",
         jump_forward, "Jump forward on jumplist",
         jump_backward, "Jump backward on jumplist",
         save_selection, "Save current selection to jumplist",
@@ -5949,6 +5952,13 @@ fn vsplit_new(cx: &mut Context) {
 fn wclose(cx: &mut Context) {
     if cx.editor.tree.is_agent_panel(cx.editor.tree.focus) {
         crate::commands::agent::close_agent_panel_editor(cx.editor);
+        return;
+    }
+
+    if cx.editor.tree.is_terminal_panel(cx.editor.tree.focus) {
+        if let Some(session_id) = cx.editor.terminal.active_session.clone() {
+            crate::commands::terminal::close_terminal_session(cx.editor, &session_id);
+        }
         return;
     }
 

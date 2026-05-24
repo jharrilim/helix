@@ -123,6 +123,10 @@ fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow
         crate::commands::agent::close_agent_panel_editor(cx.editor);
         return Ok(());
     }
+    if cx.editor.tree.is_terminal_panel(cx.editor.tree.focus) {
+        crate::commands::terminal::close_terminal_panel_editor(cx.editor);
+        return Ok(());
+    }
 
     cx.editor.close(view!(cx.editor).id);
 
@@ -137,6 +141,10 @@ fn force_quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> 
     cx.block_try_flush_writes()?;
     if cx.editor.tree.is_agent_panel(cx.editor.tree.focus) {
         crate::commands::agent::close_agent_panel_editor(cx.editor);
+        return Ok(());
+    }
+    if cx.editor.tree.is_terminal_panel(cx.editor.tree.focus) {
+        crate::commands::terminal::close_terminal_panel_editor(cx.editor);
         return Ok(());
     }
 
@@ -975,6 +983,7 @@ fn quit_all_impl(cx: &mut compositor::Context, force: bool) -> anyhow::Result<()
     }
 
     crate::commands::agent::close_agent_panel_editor(cx.editor);
+    crate::commands::terminal::close_terminal_panel_editor(cx.editor);
 
     // close all views
     let views: Vec<_> = cx.editor.tree.views().map(|(view, _)| view.id).collect();
@@ -4087,16 +4096,52 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         aliases: &["term-open"],
         doc: "Open the integrated terminal panel",
         fun: typed_terminal_open,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+        completer: CommandCompleter::positional(&[completers::directory]),
+        signature: Signature {
+            positionals: (0, None),
+            flags: &[Flag {
+                name: "cwd",
+                alias: None,
+                doc: "working directory for the new terminal session",
+                completions: Some(&[]),
+            }],
+            ..Signature::DEFAULT
+        },
     },
     TypableCommand {
         name: "terminal-close",
         aliases: &["term-close"],
-        doc: "Close the integrated terminal panel",
+        doc: "Close the active terminal tab",
         fun: typed_terminal_close,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "terminal-new",
+        aliases: &["term-new"],
+        doc: "Open a new terminal tab",
+        fun: typed_terminal_new,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "terminal-list",
+        aliases: &["term-list"],
+        doc: "List and switch terminal tabs",
+        fun: typed_terminal_list,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "terminal-focus",
+        aliases: &["term-focus"],
+        doc: "Focus a terminal tab by session id",
+        fun: typed_terminal_focus,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (1, Some(1)),
+            ..Signature::DEFAULT
+        },
     },
     TypableCommand {
         name: "terminal-toggle",
@@ -4105,6 +4150,23 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         fun: typed_terminal_toggle,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "terminal-send",
+        aliases: &["term-send"],
+        doc: "Send the editor selection or current line to the active terminal",
+        fun: typed_terminal_send,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, None),
+            flags: &[Flag {
+                name: "no-newline",
+                alias: None,
+                doc: "do not append a newline after the sent text",
+                ..Flag::DEFAULT
+            }],
+            ..Signature::DEFAULT
+        },
     },
 ];
 
@@ -4669,13 +4731,16 @@ fn typed_agent_mode(
 
 fn typed_terminal_open(
     cx: &mut compositor::Context,
-    _args: Args<'_>,
+    args: Args<'_>,
     event: PromptEvent,
 ) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
     }
-    crate::commands::terminal::terminal_open_editor(cx.editor, cx.jobs);
+    let cwd = args
+        .get_flag("cwd")
+        .map(|path| helix_stdx::path::expand_tilde(std::path::Path::new(path)).into_owned());
+    crate::commands::terminal::terminal_open_editor(cx.editor, cx.jobs, cwd);
     Ok(())
 }
 
@@ -4691,6 +4756,54 @@ fn typed_terminal_close(
     Ok(())
 }
 
+fn typed_terminal_new(
+    cx: &mut compositor::Context,
+    _args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    crate::commands::terminal::terminal_new_editor(cx.editor, cx.jobs);
+    Ok(())
+}
+
+fn typed_terminal_list(
+    cx: &mut compositor::Context,
+    _args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let callback = Box::pin(async move {
+        let call: crate::job::Callback = crate::job::Callback::EditorCompositor(Box::new(
+            |editor, compositor| {
+                crate::commands::terminal::show_terminal_list_picker(editor, compositor);
+            },
+        ));
+        Ok(call)
+    });
+    cx.jobs.callback(callback);
+    Ok(())
+}
+
+fn typed_terminal_focus(
+    cx: &mut compositor::Context,
+    args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let Some(session_id) = args.first() else {
+        cx.editor.set_error("expected terminal session id");
+        return Ok(());
+    };
+    crate::commands::terminal::terminal_focus_editor(cx.editor, session_id);
+    Ok(())
+}
+
 fn typed_terminal_toggle(
     cx: &mut compositor::Context,
     _args: Args<'_>,
@@ -4700,5 +4813,18 @@ fn typed_terminal_toggle(
         return Ok(());
     }
     crate::commands::terminal::terminal_toggle_editor(cx.editor, cx.jobs);
+    Ok(())
+}
+
+fn typed_terminal_send(
+    cx: &mut compositor::Context,
+    args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let append_newline = !args.has_flag("no-newline");
+    crate::commands::terminal::terminal_send_editor(cx.editor, append_newline);
     Ok(())
 }

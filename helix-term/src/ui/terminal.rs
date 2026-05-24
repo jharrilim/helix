@@ -1,22 +1,90 @@
+use alacritty_terminal::grid::Dimensions;
 use crate::compositor::EventResult;
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Rgb};
 use helix_core::unicode::width::UnicodeWidthChar;
 use helix_core::Position;
-use helix_pty::TerminalScroll;
+use helix_pty::{GridPoint, SelectionKind, TerminalScroll, viewport_point_to_grid};
 use helix_view::{
     graphics::{Color as HelixColor, CursorKind, Modifier, Rect, Style},
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     keyboard::{KeyCode, KeyModifiers},
-    terminal::TerminalFocus,
+    terminal::{
+        TerminalFocus, TerminalGridPoint, TerminalSearchMatch, TerminalSelection,
+        TerminalSelectionKind,
+    },
     Editor, ViewId,
 };
 use tui::buffer::Buffer as Surface;
 use tui::text::Span;
 use tui::widgets::{Block, Borders, Widget};
 
+const TAB_BAR_HEIGHT: u16 = 1;
 const HEADER_HEIGHT: u16 = 1;
+
+pub fn panel_inner(area: Rect) -> Rect {
+    Block::default().borders(Borders::ALL).inner(area)
+}
+
+pub fn tab_bar_area(area: Rect) -> Rect {
+    let inner = panel_inner(area);
+    if inner.height == 0 {
+        return Rect::default();
+    }
+    Rect {
+        height: TAB_BAR_HEIGHT.min(inner.height),
+        ..inner
+    }
+}
+
+pub fn status_header_area(area: Rect) -> Rect {
+    let inner = panel_inner(area);
+    let tab = tab_bar_area(area);
+    if inner.height <= tab.height {
+        return Rect::default();
+    }
+    Rect {
+        y: tab.bottom(),
+        height: HEADER_HEIGHT.min(inner.height.saturating_sub(tab.height)),
+        width: inner.width,
+        x: inner.x,
+    }
+}
+
+pub fn grid_area(area: Rect) -> Rect {
+    let inner = panel_inner(area);
+    let top = tab_bar_area(area).height + status_header_area(area).height;
+    if inner.height <= top {
+        return Rect::default();
+    }
+    Rect {
+        y: inner.y + top,
+        height: inner.height.saturating_sub(top),
+        ..inner
+    }
+}
+
+fn to_grid(point: TerminalGridPoint) -> GridPoint {
+    GridPoint {
+        line: point.line,
+        col: point.col,
+    }
+}
+
+fn to_terminal(point: GridPoint) -> TerminalGridPoint {
+    TerminalGridPoint {
+        line: point.line,
+        col: point.col,
+    }
+}
+
+fn selection_kind(kind: TerminalSelectionKind) -> SelectionKind {
+    match kind {
+        TerminalSelectionKind::Char => SelectionKind::Char,
+        TerminalSelectionKind::Line => SelectionKind::Line,
+    }
+}
 
 /// Returns the terminal panel under the given screen coordinates, if any.
 pub fn panel_at_coords(editor: &Editor, row: u16, column: u16) -> Option<ViewId> {
@@ -29,21 +97,80 @@ fn contains_coords(area: Rect, row: u16, column: u16) -> bool {
     row >= area.y && row < area.bottom() && column >= area.x && column < area.right()
 }
 
-pub fn grid_area(area: Rect) -> Rect {
-    let inner = Block::default().borders(Borders::ALL).inner(area);
-    if inner.height <= HEADER_HEIGHT {
-        return Rect::default();
-    }
-    Rect {
-        y: inner.y + HEADER_HEIGHT,
-        height: inner.height.saturating_sub(HEADER_HEIGHT),
-        ..inner
-    }
-}
-
 pub fn grid_size(area: Rect) -> (u16, u16) {
     let grid = grid_area(area);
     (grid.height.max(1), grid.width.max(2))
+}
+
+fn tab_label_for(editor: &Editor, session_id: &str) -> String {
+    editor
+        .terminal
+        .sessions
+        .get(session_id)
+        .map(|session| format!(" {} ", session.tab_label()))
+        .unwrap_or_else(|| format!(" {session_id} "))
+}
+
+pub fn render_tab_bar(editor: &Editor, area: Rect, surface: &mut Surface) {
+    let tab_area = tab_bar_area(area);
+    if tab_area.height == 0 || tab_area.width == 0 {
+        return;
+    }
+
+    let active_style = editor
+        .theme
+        .try_get("ui.bufferline.active")
+        .unwrap_or_else(|| editor.theme.get("ui.selection.active"));
+    let inactive_style = editor
+        .theme
+        .try_get("ui.bufferline")
+        .unwrap_or_else(|| editor.theme.get("ui.selection"));
+    let background = editor
+        .theme
+        .try_get("ui.bufferline.background")
+        .unwrap_or_else(|| editor.theme.get("ui.background"));
+
+    surface.clear_with(tab_area, background);
+
+    let active = editor.terminal.active_session.as_deref();
+    let mut x = tab_area.x;
+    for session_id in &editor.terminal.session_order {
+        let label = tab_label_for(editor, session_id);
+        let style = if active == Some(session_id.as_str()) {
+            active_style
+        } else {
+            inactive_style
+        };
+        let rem = tab_area.right().saturating_sub(x);
+        if rem == 0 {
+            break;
+        }
+        x = surface
+            .set_stringn(x, tab_area.y, &label, rem as usize, style)
+            .0;
+    }
+}
+
+fn session_id_at_tab(editor: &Editor, area: Rect, row: u16, column: u16) -> Option<String> {
+    let tab_area = tab_bar_area(area);
+    if !contains_coords(tab_area, row, column) {
+        return None;
+    }
+    let active = editor.terminal.active_session.as_deref();
+    let mut x = tab_area.x;
+    for session_id in &editor.terminal.session_order {
+        let label = tab_label_for(editor, session_id);
+        let width = label.len() as u16;
+        if column >= x && column < x + width {
+            return Some(session_id.clone());
+        }
+        x += width;
+        if x >= tab_area.right() {
+            break;
+        }
+        let _ = active;
+    }
+    None
 }
 
 pub fn render(editor: &Editor, area: Rect, surface: &mut Surface, focused: bool) {
@@ -79,6 +206,9 @@ fn render_panel(
     };
     let label_style = theme.get("ui.text");
     let header_style = theme.get("ui.text.inactive");
+    let selection_style = theme.get("ui.selection");
+    let search_style = theme.get("ui.highlight");
+    let search_current_style = theme.get("ui.selection.active");
 
     let Some(session_id) = session_id else {
         let block = Block::default()
@@ -98,8 +228,12 @@ fn render_panel(
         .unwrap_or_default();
     let exit = session.and_then(|session| session.exit_status);
 
-    let mode = if focused && editor.terminal.focus == TerminalFocus::Insert {
-        "I"
+    let mode = if focused {
+        match editor.terminal.focus {
+            TerminalFocus::Insert => "I",
+            TerminalFocus::Select => "S",
+            TerminalFocus::Normal => "N",
+        }
     } else {
         "N"
     };
@@ -118,15 +252,10 @@ fn render_panel(
         return;
     }
 
-    let header_area = Rect {
-        height: HEADER_HEIGHT.min(inner.height),
-        ..inner
-    };
-    let body = Rect {
-        y: inner.y + header_area.height,
-        height: inner.height.saturating_sub(header_area.height),
-        ..inner
-    };
+    render_tab_bar(editor, area, surface);
+
+    let header_area = status_header_area(area);
+    let body = grid_area(area);
 
     let header = if let Some(code) = exit {
         format!("[{mode}] {session_id} — {cwd} — exited {code}")
@@ -142,6 +271,8 @@ fn render_panel(
 
     let default_fg = theme.get("ui.text");
     let default_bg = theme.get("ui.background");
+    let selection = editor.terminal.selection;
+    let search = editor.terminal.search.as_ref();
 
     handle.with_term(|term| {
         let content = term.renderable_content();
@@ -163,8 +294,38 @@ fn render_panel(
                 continue;
             }
 
+            let grid_point = to_terminal(viewport_point_to_grid(term, row, col));
+            let mut style = cell_to_style(cell, &content.colors, default_fg, default_bg);
+
+            if let Some(search) = search {
+                if search
+                    .matches
+                    .iter()
+                    .enumerate()
+                    .any(|(idx, m)| {
+                        m.line == grid_point.line
+                            && col >= m.col
+                            && col < m.col + search.pattern.len()
+                            && idx == search.current
+                    })
+                {
+                    style = style.patch(search_current_style);
+                } else if search.matches.iter().any(|m| {
+                    m.line == grid_point.line
+                        && col >= m.col
+                        && col < m.col + search.pattern.len()
+                }) {
+                    style = style.patch(search_style);
+                }
+            }
+
+            if let Some(sel) = selection {
+                if point_in_selection(grid_point, sel) {
+                    style = style.patch(selection_style);
+                }
+            }
+
             let c = cell.c;
-            let style = cell_to_style(cell, &content.colors, default_fg, default_bg);
             let width = c.width().unwrap_or(1);
             for offset in 0..width {
                 if col >= cols {
@@ -185,6 +346,26 @@ fn render_panel(
             }
         }
     });
+}
+
+fn point_in_selection(point: TerminalGridPoint, sel: TerminalSelection) -> bool {
+    let (start, end) = sel.normalized();
+    match sel.kind {
+        TerminalSelectionKind::Line => point.line >= start.line && point.line <= end.line,
+        TerminalSelectionKind::Char => {
+            if point.line < start.line || point.line > end.line {
+                false
+            } else if start.line == end.line {
+                point.col >= start.col && point.col <= end.col
+            } else if point.line == start.line {
+                point.col >= start.col
+            } else if point.line == end.line {
+                point.col <= end.col
+            } else {
+                true
+            }
+        }
+    }
 }
 
 fn cell_to_style(cell: &Cell, colors: &Colors, default_fg: Style, default_bg: Style) -> Style {
@@ -323,22 +504,71 @@ pub fn handle_mouse(editor: &mut Editor, event: MouseEvent) -> EventResult {
     };
 
     editor.tree.focus = panel_id;
-    if let Some(panel) = editor.tree.terminal_panel(panel_id) {
-        editor.terminal.active_session = Some(panel.session_id.clone());
-    }
+
+    let panel = editor.tree.terminal_panel(panel_id).unwrap();
+    let tab_area = tab_bar_area(panel.area);
+    let header = status_header_area(panel.area);
+    let body = grid_area(panel.area);
 
     match event.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            editor.terminal.focus = TerminalFocus::Insert;
-            editor.mode = helix_view::document::Mode::Insert;
+            if let Some(session_id) = session_id_at_tab(editor, panel.area, event.row, event.column)
+            {
+                editor.switch_terminal_session(&session_id);
+            } else if contains_coords(header, event.row, event.column) {
+                editor.terminal.focus = TerminalFocus::Normal;
+                editor.mode = helix_view::document::Mode::Normal;
+            } else if contains_coords(tab_area, event.row, event.column) {
+                editor.terminal.focus = TerminalFocus::Normal;
+                editor.mode = helix_view::document::Mode::Normal;
+            } else if contains_coords(body, event.row, event.column) {
+                editor.terminal.focus = TerminalFocus::Normal;
+                editor.mode = helix_view::document::Mode::Normal;
+                if let Some(point) = point_from_mouse(editor, body, event.row, event.column) {
+                    editor.terminal.selection = Some(TerminalSelection::new(
+                        point,
+                        TerminalSelectionKind::Char,
+                    ));
+                }
+            }
             helix_event::request_redraw();
             EventResult::Consumed(None)
         }
-        MouseEventKind::ScrollUp => {
+        MouseEventKind::Drag(MouseButton::Left) => {
+            if contains_coords(body, event.row, event.column) {
+                if let Some(point) = point_from_mouse(editor, body, event.row, event.column) {
+                    if let Some(sel) = editor.terminal.selection.as_mut() {
+                        sel.head = point;
+                        sel.dragging = true;
+                    } else {
+                        editor.terminal.selection = Some(TerminalSelection::new(
+                            point,
+                            TerminalSelectionKind::Char,
+                        ));
+                    }
+                }
+                helix_event::request_redraw();
+            }
+            EventResult::Consumed(None)
+        }
+        MouseEventKind::Up(MouseButton::Left) => {
+            let mut yanked = false;
+            if let Some(sel) = editor.terminal.selection.as_mut() {
+                sel.dragging = false;
+                if yank_selection(editor) {
+                    yanked = true;
+                }
+            }
+            if yanked {
+                helix_event::request_redraw();
+            }
+            EventResult::Consumed(None)
+        }
+        MouseEventKind::ScrollUp if contains_coords(body, event.row, event.column) => {
             scroll_lines(editor, 1);
             EventResult::Consumed(None)
         }
-        MouseEventKind::ScrollDown => {
+        MouseEventKind::ScrollDown if contains_coords(body, event.row, event.column) => {
             scroll_lines(editor, -1);
             EventResult::Consumed(None)
         }
@@ -346,13 +576,69 @@ pub fn handle_mouse(editor: &mut Editor, event: MouseEvent) -> EventResult {
     }
 }
 
+fn point_from_mouse(
+    editor: &Editor,
+    body: Rect,
+    row: u16,
+    column: u16,
+) -> Option<TerminalGridPoint> {
+    if body.height == 0 || body.width == 0 {
+        return None;
+    }
+    let viewport_row = (row.saturating_sub(body.y)) as usize;
+    let col = (column.saturating_sub(body.x)) as usize;
+    if viewport_row >= body.height as usize || col >= body.width as usize {
+        return None;
+    }
+    let session_id = active_session_id(editor)?;
+    let handle = crate::terminal::session_handle(&session_id)?;
+    Some(to_terminal(handle.viewport_point_to_grid(viewport_row, col)))
+}
+
+pub fn paste_to_terminal(editor: &mut Editor, contents: &str) {
+    let Some(session_id) = active_session_id(editor) else {
+        return;
+    };
+    if contents.is_empty() {
+        return;
+    }
+    crate::terminal::send(helix_pty::TerminalCommand::Write {
+        id: session_id.into(),
+        data: contents.as_bytes().to_vec(),
+    });
+}
+
 pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> bool {
     if !editor.terminal.is_open() {
         return false;
     }
 
+    if editor.terminal.register_pending {
+        editor.terminal.register_pending = false;
+        let register = match key.code {
+            KeyCode::Char(c) => c,
+            KeyCode::Esc => return true,
+            _ => return true,
+        };
+        let pasted = editor
+            .registers
+            .read(register, editor)
+            .and_then(|mut values| values.next().map(|text| text.into_owned()));
+        if let Some(text) = pasted {
+            paste_to_terminal(editor, &text);
+        }
+        return true;
+    }
+
+    if key.code == KeyCode::Char('"') && !key.modifiers.contains(KeyModifiers::CONTROL) {
+        editor.terminal.register_pending = true;
+        return true;
+    }
+
     if key.code == KeyCode::Esc {
         editor.terminal.focus = TerminalFocus::Normal;
+        editor.terminal.clear_selection();
+        editor.terminal.clear_search();
         editor.mode = helix_view::document::Mode::Normal;
         helix_event::request_redraw();
         return true;
@@ -374,12 +660,53 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> bool {
     true
 }
 
-pub fn handle_normal_key(editor: &mut Editor, key: KeyEvent) -> bool {
+pub fn handle_normal_key_with_search(editor: &mut Editor, key: KeyEvent) -> bool {
+    if key.code == KeyCode::Char('/') && !key.modifiers.contains(KeyModifiers::CONTROL) {
+        editor.terminal.open_search_prompt = true;
+        return true;
+    }
+    if key.code == KeyCode::Char('t') && !key.modifiers.contains(KeyModifiers::SHIFT) {
+        if editor.terminal.tab_menu_active {
+            crate::ui::terminal_tabs::close(editor);
+        } else {
+            crate::ui::terminal_tabs::open(editor);
+        }
+        return true;
+    }
+    handle_normal_key_impl(editor, key, true)
+}
+
+fn handle_normal_key_impl(editor: &mut Editor, key: KeyEvent, allow_search_nav: bool) -> bool {
     if !editor.terminal.is_open() {
         return false;
     }
 
+    if allow_search_nav {
+        if key.code == KeyCode::Char('n') && !key.modifiers.contains(KeyModifiers::SHIFT) {
+            if search_next(editor, false) {
+                return true;
+            }
+        }
+        if key.code == KeyCode::Char('N') && key.modifiers.contains(KeyModifiers::SHIFT) {
+            if search_next(editor, true) {
+                return true;
+            }
+        }
+    }
+
+    if editor.terminal.focus == TerminalFocus::Select {
+        return handle_select_key(editor, key);
+    }
+
     match key.code {
+        KeyCode::Char('v') if !key.modifiers.contains(KeyModifiers::SHIFT) => {
+            enter_select_mode(editor, TerminalSelectionKind::Char);
+            true
+        }
+        KeyCode::Char('V') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            enter_select_mode(editor, TerminalSelectionKind::Line);
+            true
+        }
         KeyCode::Char('i') | KeyCode::Char('a') => {
             editor.terminal.pending_scroll_top = false;
             editor.terminal.focus = TerminalFocus::Insert;
@@ -421,8 +748,295 @@ pub fn handle_normal_key(editor: &mut Editor, key: KeyEvent) -> bool {
             scroll_half_page(editor, -1);
             true
         }
+        KeyCode::Esc => {
+            editor.terminal.clear_selection();
+            editor.terminal.clear_search();
+            helix_event::request_redraw();
+            true
+        }
         _ => false,
     }
+}
+
+fn handle_select_key(editor: &mut Editor, key: KeyEvent) -> bool {
+    match key.code {
+        KeyCode::Char('y') => yank_selection(editor),
+        KeyCode::Esc => {
+            editor.terminal.focus = TerminalFocus::Normal;
+            editor.terminal.clear_selection();
+            editor.mode = helix_view::document::Mode::Normal;
+            helix_event::request_redraw();
+            true
+        }
+        KeyCode::Char('v') if !key.modifiers.contains(KeyModifiers::SHIFT) => {
+            if let Some(sel) = editor.terminal.selection.as_mut() {
+                sel.kind = TerminalSelectionKind::Char;
+            }
+            true
+        }
+        KeyCode::Char('V') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            if let Some(sel) = editor.terminal.selection.as_mut() {
+                sel.kind = TerminalSelectionKind::Line;
+            }
+            true
+        }
+        KeyCode::Char('j') => {
+            move_selection_head(editor, 1, 0);
+            true
+        }
+        KeyCode::Char('k') => {
+            move_selection_head(editor, -1, 0);
+            true
+        }
+        KeyCode::Char('h') => {
+            move_selection_head(editor, 0, -1);
+            true
+        }
+        KeyCode::Char('l') => {
+            move_selection_head(editor, 0, 1);
+            true
+        }
+        KeyCode::Char('G') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            scroll_to_bottom(editor);
+            if let Some(point) = cursor_grid_point(editor) {
+                if let Some(sel) = editor.terminal.selection.as_mut() {
+                    sel.head = point;
+                }
+            }
+            true
+        }
+        KeyCode::Char('g') => {
+            scroll_to_top(editor);
+            if let Some(point) = top_grid_point(editor) {
+                if let Some(sel) = editor.terminal.selection.as_mut() {
+                    sel.head = point;
+                }
+            }
+            true
+        }
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            scroll_half_page(editor, 1);
+            true
+        }
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            scroll_half_page(editor, -1);
+            true
+        }
+        _ => false,
+    }
+}
+
+fn enter_select_mode(editor: &mut Editor, kind: TerminalSelectionKind) {
+    editor.terminal.pending_scroll_top = false;
+    editor.terminal.focus = TerminalFocus::Select;
+    editor.mode = helix_view::document::Mode::Normal;
+    let point = cursor_grid_point(editor).unwrap_or_default();
+    editor.terminal.selection = Some(TerminalSelection::new(point, kind));
+    helix_event::request_redraw();
+}
+
+fn move_selection_head(editor: &mut Editor, line_delta: i32, col_delta: i32) {
+    let Some(session_id) = active_session_id(editor) else {
+        return;
+    };
+    let Some(handle) = crate::terminal::session_handle(&session_id) else {
+        return;
+    };
+
+    let cols = handle.with_term(|term| term.columns());
+    if let Some(sel) = editor.terminal.selection.as_mut() {
+        let mut head = sel.head;
+        head.line = head.line.saturating_add(line_delta);
+        if col_delta < 0 {
+            head.col = head.col.saturating_sub((-col_delta) as usize);
+        } else {
+            head.col = (head.col + col_delta as usize).min(cols.saturating_sub(1));
+        }
+        sel.head = head;
+    }
+
+    if line_delta > 0 {
+        scroll_lines(editor, -1);
+    } else if line_delta < 0 {
+        scroll_lines(editor, 1);
+    }
+
+    helix_event::request_redraw();
+}
+
+fn cursor_grid_point(editor: &Editor) -> Option<TerminalGridPoint> {
+    let session_id = active_session_id(editor)?;
+    let handle = crate::terminal::session_handle(&session_id)?;
+    handle.with_term(|term| {
+        let point = term.renderable_content().cursor.point;
+        Some(TerminalGridPoint {
+            line: point.line.0,
+            col: point.column.0,
+        })
+    })
+}
+
+fn top_grid_point(editor: &Editor) -> Option<TerminalGridPoint> {
+    let session_id = active_session_id(editor)?;
+    let handle = crate::terminal::session_handle(&session_id)?;
+    let display_offset = handle.display_offset();
+    Some(TerminalGridPoint {
+        line: -(display_offset as i32),
+        col: 0,
+    })
+}
+
+fn yank_selection(editor: &mut Editor) -> bool {
+    let Some(session_id) = active_session_id(editor) else {
+        return false;
+    };
+    let Some(handle) = crate::terminal::session_handle(&session_id) else {
+        return false;
+    };
+    let Some(sel) = editor.terminal.selection else {
+        return false;
+    };
+    let text = handle.range_text(
+        to_grid(sel.anchor),
+        to_grid(sel.head),
+        selection_kind(sel.kind),
+    );
+    if text.is_empty() {
+        return false;
+    }
+
+    let config = editor.config();
+    let mouse_register = config.mouse_yank_register;
+    let clipboard_register = '+';
+    let mouse_result = editor.registers.write(mouse_register, vec![text.clone()]);
+    let clipboard_result = if mouse_register == clipboard_register {
+        Ok(())
+    } else {
+        editor.registers.write(clipboard_register, vec![text])
+    };
+    match (mouse_result, clipboard_result) {
+        (Ok(()), Ok(())) => {
+            let status = if mouse_register == clipboard_register {
+                format!("yanked terminal selection to register {mouse_register}")
+            } else {
+                format!(
+                    "yanked terminal selection to registers {mouse_register} and {clipboard_register}"
+                )
+            };
+            editor.set_status(status);
+        }
+        (Err(err), _) | (_, Err(err)) => editor.set_error(err.to_string()),
+    }
+    true
+}
+
+pub fn open_search_prompt(cx: &mut crate::commands::Context) {
+    use crate::ui::PromptEvent;
+    use helix_stdx::rope::RopeSliceExt;
+    use helix_core::ropey::Rope;
+
+    crate::ui::raw_regex_prompt(
+        cx,
+        "terminal:".into(),
+        Some('/'),
+        crate::ui::completers::none,
+        move |cx, regex, input, event| {
+            if event == PromptEvent::Abort {
+                cx.editor.terminal.clear_search();
+                return;
+            }
+            if event != PromptEvent::Validate {
+                return;
+            }
+
+            let Some(session_id) = active_session_id(cx.editor) else {
+                cx.editor.set_error("no active terminal session");
+                return;
+            };
+            let Some(handle) = crate::terminal::session_handle(&session_id) else {
+                cx.editor.set_error("terminal session not ready");
+                return;
+            };
+
+            let pattern = input.to_string();
+            let mut matches = Vec::new();
+            for (line, text) in handle.all_lines() {
+                let rope = Rope::from_str(&text);
+                for mat in regex.find_iter(rope.slice(..).regex_input()) {
+                    matches.push(TerminalSearchMatch {
+                        line,
+                        col: mat.start(),
+                    });
+                }
+            }
+
+            if matches.is_empty() {
+                cx.editor.set_error("pattern not found");
+                cx.editor.terminal.clear_search();
+                return;
+            }
+
+            cx.editor.terminal.search = Some(helix_view::terminal::TerminalSearch {
+                pattern,
+                matches,
+                current: 0,
+            });
+            jump_to_search_match(cx.editor, 0);
+        },
+    );
+}
+
+fn search_next(editor: &mut Editor, reverse: bool) -> bool {
+    let index = {
+        let Some(search) = editor.terminal.search.as_mut() else {
+            return false;
+        };
+        if search.matches.is_empty() {
+            return false;
+        }
+        let len = search.matches.len();
+        search.current = if reverse {
+            (search.current + len - 1) % len
+        } else {
+            (search.current + 1) % len
+        };
+        search.current
+    };
+    jump_to_search_match(editor, index);
+    true
+}
+
+fn jump_to_search_match(editor: &mut Editor, index: usize) {
+    let match_line = editor
+        .terminal
+        .search
+        .as_ref()
+        .and_then(|search| search.matches.get(index))
+        .map(|m| m.line);
+    let Some(match_line) = match_line else {
+        return;
+    };
+    let Some(session_id) = active_session_id(editor) else {
+        return;
+    };
+    let Some(handle) = crate::terminal::session_handle(&session_id) else {
+        return;
+    };
+
+    if let Some(session) = editor.terminal.session_mut(&session_id) {
+        session.scroll_pinned = false;
+    }
+    let current_offset = handle.display_offset();
+    let target_offset = (-match_line).max(0) as usize;
+    let delta = target_offset as i32 - current_offset as i32;
+    if delta != 0 {
+        handle.scroll(TerminalScroll::Delta(delta));
+        if let Some(session) = editor.terminal.session_mut(&session_id) {
+            session.scroll_offset = handle.display_offset();
+        }
+    }
+
+    helix_event::request_redraw();
 }
 
 fn active_session_id(editor: &Editor) -> Option<String> {
@@ -582,10 +1196,16 @@ pub fn cursor(editor: &Editor, _area: Rect) -> (Option<Position>, CursorKind) {
 }
 
 pub fn resize_panels(editor: &Editor) {
-    for (panel, _) in editor.tree.terminal_panels() {
-        let (rows, cols) = grid_size(panel.area);
+    let Some(panel_id) = editor.terminal.panel_id else {
+        return;
+    };
+    let Some(panel) = editor.tree.terminal_panel(panel_id) else {
+        return;
+    };
+    let (rows, cols) = grid_size(panel.area);
+    if let Some(session_id) = editor.terminal.active_session.as_ref() {
         crate::terminal::send(helix_pty::TerminalCommand::Resize {
-            id: panel.session_id.clone().into(),
+            id: session_id.clone().into(),
             rows,
             cols,
         });

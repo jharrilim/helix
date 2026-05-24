@@ -129,6 +129,12 @@ fn apply_event(editor: &mut Editor, event: &TerminalEvent) {
 
             helix_event::request_redraw();
         }
+        TerminalEvent::Bell { id: _ } => {
+            if editor.integrated_terminal_settings().bell {
+                editor.set_status("terminal bell");
+            }
+            helix_event::request_redraw();
+        }
         TerminalEvent::Error { text } => {
             editor.set_error(text.clone());
         }

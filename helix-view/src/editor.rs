@@ -2513,10 +2513,28 @@ impl Editor {
     }
 
     fn open_terminal_panel_id(&self) -> Option<ViewId> {
-        self.terminal
-            .sessions
-            .values()
-            .find_map(|session| session.panel_id)
+        self.terminal.panel_id
+    }
+
+    fn sync_terminal_panel_session_id(&mut self) {
+        let Some(panel_id) = self.terminal.panel_id else {
+            return;
+        };
+        let Some(active) = self.terminal.active_session.clone() else {
+            return;
+        };
+        if let Some(panel) = self.tree.terminal_panel_mut(panel_id) {
+            panel.session_id = active;
+        }
+    }
+
+    pub fn switch_terminal_session(&mut self, session_id: &str) -> bool {
+        if !self.terminal.switch_session(session_id) {
+            return false;
+        }
+        self.sync_terminal_panel_session_id();
+        self._refresh();
+        true
     }
 
     /// Agent and terminal stack in one column; either splits beside the editor alone.
@@ -2593,18 +2611,20 @@ impl Editor {
     }
 
     pub fn open_terminal_panel(&mut self, session_id: String) {
-        if let Some(session) = self.terminal.sessions.get(&session_id) {
-            if let Some(panel_id) = session.panel_id {
-                if !self.tree.is_terminal_panel(self.tree.focus) {
-                    self.enter_normal_mode();
-                    let (view, doc) = current!(self);
-                    doc.append_changes_to_history(view);
-                }
-                self.tree.focus = panel_id;
-                self.terminal.focus = crate::terminal::TerminalFocus::Normal;
-                self.terminal.active_session = Some(session_id);
-                return;
+        if self.terminal.panel_id.is_some() {
+            if !self.tree.is_terminal_panel(self.tree.focus) {
+                self.enter_normal_mode();
+                let (view, doc) = current!(self);
+                doc.append_changes_to_history(view);
             }
+            self.terminal.switch_session(&session_id);
+            self.sync_terminal_panel_session_id();
+            if let Some(panel_id) = self.terminal.panel_id {
+                self.tree.focus = panel_id;
+            }
+            self.terminal.focus = crate::terminal::TerminalFocus::Normal;
+            self._refresh();
+            return;
         }
 
         let cwd = self
@@ -2613,8 +2633,11 @@ impl Editor {
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
         if self.terminal.sessions.get(&session_id).is_none() {
-            self.terminal.register_session(session_id.clone(), cwd);
+            self.terminal.insert_session(session_id.clone(), cwd);
+        } else if !self.terminal.session_order.contains(&session_id) {
+            self.terminal.session_order.push(session_id.clone());
         }
+        self.terminal.active_session = Some(session_id.clone());
 
         let agent_open = self.agent.panel_id.is_some();
         let layout = self.auxiliary_split_layout(agent_open);
@@ -2623,21 +2646,14 @@ impl Editor {
         }
 
         let panel_id = self.tree.split_terminal_panel(layout, session_id.clone());
-        if let Some(session) = self.terminal.session_mut(&session_id) {
-            session.panel_id = Some(panel_id);
-        }
-        self.terminal.active_session = Some(session_id);
+        self.terminal.panel_id = Some(panel_id);
         self.terminal.focus = crate::terminal::TerminalFocus::Normal;
         self.tree.focus = panel_id;
         self._refresh();
     }
 
-    pub fn close_terminal_panel(&mut self, session_id: &str) {
-        let Some(panel_id) = self
-            .terminal
-            .session_mut(session_id)
-            .and_then(|session| session.panel_id.take())
-        else {
+    pub fn close_terminal_panel(&mut self) {
+        let Some(panel_id) = self.terminal.panel_id.take() else {
             return;
         };
 
@@ -2651,15 +2667,19 @@ impl Editor {
         self._refresh();
     }
 
-    pub fn focus_terminal_panel(&mut self) {
-        let panel_id = self
-            .terminal
-            .active_session
-            .as_ref()
-            .and_then(|id| self.terminal.sessions.get(id))
-            .and_then(|session| session.panel_id);
+    pub fn remove_terminal_tab(&mut self, session_id: &str) -> bool {
+        let close_panel = self.terminal.remove_session(session_id);
+        if close_panel {
+            self.close_terminal_panel();
+        } else {
+            self.sync_terminal_panel_session_id();
+            self._refresh();
+        }
+        close_panel
+    }
 
-        let Some(panel_id) = panel_id else {
+    pub fn focus_terminal_panel(&mut self) {
+        let Some(panel_id) = self.terminal.panel_id else {
             return;
         };
 
@@ -2680,13 +2700,7 @@ impl Editor {
     }
 
     pub fn terminal_panel_focused(&self) -> bool {
-        let Some(id) = self.terminal.active_session.as_ref() else {
-            return false;
-        };
-        let Some(session) = self.terminal.sessions.get(id) else {
-            return false;
-        };
-        session.panel_id.is_some_and(|panel_id| {
+        self.terminal.panel_id.is_some_and(|panel_id| {
             self.tree.focus == panel_id
                 && self.terminal.focus == crate::terminal::TerminalFocus::Insert
         })
