@@ -125,5 +125,5 @@ Work top-down by tier. Mark items complete (`[x]`) when merged.
 
 - Making panels compositor `Component`s
 - Moving panel state onto tree nodes
-- Full ECS refactor of `View`/`Document`
-- Rewriting all commands to use `try_current!`
+- Full ECS refactor of `View`/`Document` — see [`view-document-ecs.md`](view-document-ecs.md)
+- Rewriting all commands to use `try_current!` — see [`try-current-command-guards.md`](try-current-command-guards.md)
