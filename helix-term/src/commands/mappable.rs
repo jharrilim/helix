@@ -355,6 +355,7 @@ impl MappableCommand {
         agent_history, "List and load agent sessions",
         agent_new, "Start a new agent session",
         agent_mode, "Set or pick agent session mode",
+        git_panel_toggle, "Toggle git panel",
         terminal_open, "Open integrated terminal",
         terminal_close, "Close integrated terminal",
         terminal_toggle, "Toggle integrated terminal",

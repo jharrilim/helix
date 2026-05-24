@@ -1,6 +1,21 @@
 use std::path::{Path, PathBuf};
 
+/// Whether a change appears in the staged or unstaged section of git status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StagingSection {
+    Staged,
+    Unstaged,
+}
+
+/// A file change with its staging section.
+#[derive(Debug, Clone)]
+pub struct GitStatusEntry {
+    pub change: FileChange,
+    pub section: StagingSection,
+}
+
 /// States for a file having been changed.
+#[derive(Debug, Clone)]
 pub enum FileChange {
     /// Not tracked by the VCS.
     Untracked { path: PathBuf },

@@ -1129,6 +1129,14 @@ impl EditorView {
             || self.keymaps.sticky().is_some()
     }
 
+    fn handle_git_normal_key(&mut self, cxt: &mut commands::Context, key: KeyEvent) -> bool {
+        if matches!(key, key!('q') | ctrl!('q')) {
+            cxt.editor.close_git_panel();
+            return true;
+        }
+        crate::ui::git::handle_normal_key(cxt, key)
+    }
+
     fn handle_agent_normal_key(&mut self, cxt: &mut commands::Context, key: KeyEvent) -> bool {
         if self.agent_window_pending {
             self.agent_window_pending = false;
@@ -1303,6 +1311,12 @@ impl EditorView {
         event: &MouseEvent,
         cxt: &mut commands::Context,
     ) -> EventResult {
+        if super::git::panel_at_coords(cxt.editor, event.row, event.column).is_some() {
+            if !matches!(event.kind, MouseEventKind::Moved) {
+                return super::git::handle_mouse(cxt.editor, *event);
+            }
+            return EventResult::Ignored(None);
+        }
         if super::agent::panel_at_coords(cxt.editor, event.row, event.column).is_some() {
             if !matches!(event.kind, MouseEventKind::Moved) {
                 return super::agent::handle_mouse(cxt.editor, *event);
@@ -1314,6 +1328,11 @@ impl EditorView {
                 return super::terminal::handle_mouse(cxt.editor, *event);
             }
             return EventResult::Ignored(None);
+        }
+        if cxt.editor.tree.is_git_panel(cxt.editor.tree.focus)
+            && !matches!(event.kind, MouseEventKind::Moved)
+        {
+            return super::git::handle_mouse(cxt.editor, *event);
         }
         if cxt.editor.tree.is_agent_panel(cxt.editor.tree.focus)
             && !matches!(event.kind, MouseEventKind::Moved)
@@ -1636,6 +1655,7 @@ impl Component for EditorView {
                 let agent_leaf_focused = cx.editor.tree.is_agent_panel(cx.editor.tree.focus);
                 let terminal_leaf_focused =
                     cx.editor.tree.is_terminal_panel(cx.editor.tree.focus);
+                let git_leaf_focused = cx.editor.tree.is_git_panel(cx.editor.tree.focus);
                 if cx.editor.agent_panel_focused()
                     && !self.panel_keymap_passthrough_without_space(key)
                         && crate::ui::agent::handle_key(cx.editor, key)
@@ -1648,6 +1668,13 @@ impl Component for EditorView {
                     {
                         return Self::event_with_callbacks(&mut cx);
                     }
+
+                if git_leaf_focused && !self.panel_keymap_passthrough(key) {
+                    if self.handle_git_normal_key(&mut cx, key) {
+                        return Self::event_with_callbacks(&mut cx);
+                    }
+                    return EventResult::Consumed(None);
+                }
 
                 if agent_leaf_focused && !cx.editor.agent_panel_focused()
                     && !self.panel_keymap_passthrough(key) {
@@ -1665,7 +1692,7 @@ impl Component for EditorView {
                         return EventResult::Consumed(None);
                     }
 
-                let mode = if agent_leaf_focused || terminal_leaf_focused {
+                let mode = if agent_leaf_focused || terminal_leaf_focused || git_leaf_focused {
                     Mode::Normal
                 } else {
                     cx.editor.mode()
@@ -1740,6 +1767,21 @@ impl Component for EditorView {
                 // on the next loop cycle the Application will then terminate.
                 if cx.editor.should_close() {
                     return EventResult::Ignored(None);
+                }
+
+                if cx.editor.tree.is_git_panel(cx.editor.tree.focus) {
+                    let callback = if callbacks.is_empty() {
+                        None
+                    } else {
+                        let callback: crate::compositor::Callback =
+                            Box::new(move |compositor, cx| {
+                                for callback in callbacks {
+                                    callback(compositor, cx)
+                                }
+                            });
+                        Some(callback)
+                    };
+                    return EventResult::Consumed(callback);
                 }
 
                 if cx.editor.tree.is_agent_panel(cx.editor.tree.focus) {
@@ -1851,6 +1893,16 @@ impl Component for EditorView {
             self.render_view(cx.editor, doc, view, area, surface, is_focused);
         }
 
+        let git_panels: Vec<_> = cx
+            .editor
+            .tree
+            .git_panels()
+            .map(|(panel, focused)| (panel.area, focused))
+            .collect();
+        for (area, is_focused) in git_panels {
+            crate::ui::git::render(cx.editor, area, surface, is_focused);
+        }
+
         for (panel, is_focused) in cx.editor.tree.agent_panels() {
             crate::ui::agent::render(cx.editor, panel.area, surface, is_focused);
         }
@@ -1932,6 +1984,9 @@ impl Component for EditorView {
     }
 
     fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
+        if editor.tree.is_git_panel(editor.tree.focus) {
+            return (None, CursorKind::Hidden);
+        }
         if editor.agent_panel_focused() {
             return crate::ui::agent::cursor(editor, area);
         }

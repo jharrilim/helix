@@ -37,7 +37,9 @@ impl Editor {
     pub fn cursor(&self) -> (Option<Position>, crate::graphics::CursorKind) {
         use crate::graphics::CursorKind;
 
-        if self.tree.is_agent_panel(self.tree.focus) || self.tree.is_terminal_panel(self.tree.focus)
+        if self.tree.is_agent_panel(self.tree.focus)
+            || self.tree.is_terminal_panel(self.tree.focus)
+            || self.tree.is_git_panel(self.tree.focus)
         {
             return (None, CursorKind::Hidden);
         }

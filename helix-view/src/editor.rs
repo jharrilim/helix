@@ -149,6 +149,7 @@ pub struct Editor {
     pub cursor_cache: CursorCache,
     pub agent: crate::agent::AgentState,
     pub terminal: crate::terminal::TerminalState,
+    pub git: crate::git::GitState,
 }
 
 pub type Motion = Box<dyn Fn(&mut Editor)>;
@@ -268,6 +269,7 @@ impl Editor {
             cursor_cache: CursorCache::default(),
             agent: crate::agent::AgentState::new(),
             terminal: crate::terminal::TerminalState::new(),
+            git: crate::git::GitState::new(),
             dir_stack: VecDeque::with_capacity(DIR_STACK_CAP),
         }
     }

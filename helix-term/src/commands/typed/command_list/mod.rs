@@ -7,6 +7,7 @@ mod config;
 mod debug;
 mod diff;
 mod edit;
+mod git;
 mod lifecycle;
 mod lsp;
 mod misc;
@@ -65,6 +66,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = concat!(
     shell::COMMANDS,
     clipboard::COMMANDS,
     diff::COMMANDS,
+    git::COMMANDS,
     misc::COMMANDS,
     agent::COMMANDS,
     terminal::COMMANDS,

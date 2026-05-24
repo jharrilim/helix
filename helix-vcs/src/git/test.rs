@@ -150,3 +150,74 @@ fn symlink_to_git_repo() {
     assert_eq!(git::get_diff_base(&file_link).unwrap(), contents);
     assert_eq!(git::get_diff_base(&file).unwrap(), contents);
 }
+
+#[test]
+fn head_name_from_directory() {
+    let temp_git = empty_git_repo();
+    let file = temp_git.path().join("file.txt");
+    File::create(&file).unwrap().write_all(b"foo").unwrap();
+    create_commit(temp_git.path(), true);
+
+    let head = git::get_current_head_name(temp_git.path()).unwrap();
+    assert_eq!(head.load().to_string(), "main");
+}
+
+#[test]
+fn list_status_staged_and_unstaged() {
+    let temp_git = empty_git_repo();
+    let tracked = temp_git.path().join("tracked.txt");
+    let untracked = temp_git.path().join("new.txt");
+    File::create(&tracked).unwrap().write_all(b"base").unwrap();
+    create_commit(temp_git.path(), true);
+    File::create(&tracked).unwrap().write_all(b"changed").unwrap();
+    File::create(&untracked).unwrap().write_all(b"new").unwrap();
+    exec_git_cmd("add tracked.txt", temp_git.path());
+
+    let entries = git::list_status(temp_git.path()).unwrap();
+    let staged = entries
+        .iter()
+        .filter(|e| matches!(e.section, crate::StagingSection::Staged))
+        .count();
+    let unstaged = entries
+        .iter()
+        .filter(|e| matches!(e.section, crate::StagingSection::Unstaged))
+        .count();
+    assert!(staged >= 1, "expected staged tracked.txt");
+    assert!(unstaged >= 1, "expected unstaged new.txt");
+}
+
+#[test]
+fn stage_and_commit() {
+    let temp_git = empty_git_repo();
+    let file = temp_git.path().join("file.txt");
+    File::create(&file).unwrap().write_all(b"hello").unwrap();
+    create_commit(temp_git.path(), true);
+    File::create(&file).unwrap().write_all(b"world").unwrap();
+
+    git::stage_file(temp_git.path(), &file).unwrap();
+    let staged = git::list_status(temp_git.path())
+        .unwrap()
+        .into_iter()
+        .any(|e| matches!(e.section, crate::StagingSection::Staged));
+    assert!(staged);
+
+    git::commit(temp_git.path(), "test commit").unwrap();
+    let entries = git::list_status(temp_git.path()).unwrap();
+    assert!(entries.is_empty());
+}
+
+#[test]
+fn file_diff_untracked() {
+    let temp_git = empty_git_repo();
+    let file = temp_git.path().join("new.txt");
+    File::create(&file).unwrap().write_all(b"line\n").unwrap();
+
+    let diff = git::file_diff(
+        temp_git.path(),
+        &file,
+        crate::StagingSection::Unstaged,
+        true,
+    )
+    .unwrap();
+    assert!(diff.contains("line"));
+}

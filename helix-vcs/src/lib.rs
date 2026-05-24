@@ -12,13 +12,16 @@ use std::{
 #[cfg(feature = "git")]
 mod git;
 
+#[cfg(feature = "git")]
+pub use git::{commit, file_diff, list_status, stage_all, stage_file};
+
 mod diff;
 
 pub use diff::{DiffHandle, Hunk};
 
 mod status;
 
-pub use status::FileChange;
+pub use status::{FileChange, GitStatusEntry, StagingSection};
 
 /// Contains all active diff providers. Diff providers are compiled in via features. Currently
 /// only `git` is supported.
@@ -75,6 +78,101 @@ impl DiffProviderRegistry {
             }
         });
     }
+
+    /// List staged and unstaged changes in a background task.
+    pub fn list_status(
+        self,
+        cwd: PathBuf,
+        f: impl FnOnce(Result<Vec<GitStatusEntry>>) + Send + 'static,
+    ) {
+        tokio::task::spawn_blocking(move || {
+            let result = self
+                .providers
+                .iter()
+                .find_map(|provider| provider.list_status(&cwd).ok())
+                .ok_or_else(|| anyhow!("no diff provider returns success"));
+            f(result);
+        });
+    }
+
+    /// Stage a single file in a background task.
+    pub fn stage_file(
+        self,
+        cwd: PathBuf,
+        path: PathBuf,
+        f: impl FnOnce(Result<()>) + Send + 'static,
+    ) {
+        tokio::task::spawn_blocking(move || {
+            f(self.stage_file_sync(&cwd, &path));
+        });
+    }
+
+    /// Stage all changes in a background task.
+    pub fn stage_all(self, cwd: PathBuf, f: impl FnOnce(Result<()>) + Send + 'static) {
+        tokio::task::spawn_blocking(move || {
+            f(self.stage_all_sync(&cwd));
+        });
+    }
+
+    /// Commit staged changes in a background task.
+    pub fn commit(
+        self,
+        cwd: PathBuf,
+        message: String,
+        f: impl FnOnce(Result<()>) + Send + 'static,
+    ) {
+        tokio::task::spawn_blocking(move || {
+            f(self.commit_sync(&cwd, &message));
+        });
+    }
+
+    /// Get unified diff for a file in a background task.
+    pub fn file_diff(
+        self,
+        cwd: PathBuf,
+        path: PathBuf,
+        section: StagingSection,
+        untracked: bool,
+        f: impl FnOnce(Result<String>) + Send + 'static,
+    ) {
+        tokio::task::spawn_blocking(move || {
+            f(self.file_diff_sync(&cwd, &path, section, untracked));
+        });
+    }
+
+    fn stage_file_sync(&self, cwd: &Path, path: &Path) -> Result<()> {
+        self.providers
+            .iter()
+            .find_map(|provider| provider.stage_file(cwd, path).ok())
+            .ok_or_else(|| anyhow!("no diff provider returns success"))
+    }
+
+    fn stage_all_sync(&self, cwd: &Path) -> Result<()> {
+        self.providers
+            .iter()
+            .find_map(|provider| provider.stage_all(cwd).ok())
+            .ok_or_else(|| anyhow!("no diff provider returns success"))
+    }
+
+    fn commit_sync(&self, cwd: &Path, message: &str) -> Result<()> {
+        self.providers
+            .iter()
+            .find_map(|provider| provider.commit(cwd, message).ok())
+            .ok_or_else(|| anyhow!("no diff provider returns success"))
+    }
+
+    fn file_diff_sync(
+        &self,
+        cwd: &Path,
+        path: &Path,
+        section: StagingSection,
+        untracked: bool,
+    ) -> Result<String> {
+        self.providers
+            .iter()
+            .find_map(|provider| provider.file_diff(cwd, path, section, untracked).ok())
+            .ok_or_else(|| anyhow!("no diff provider returns success"))
+    }
 }
 
 impl Default for DiffProviderRegistry {
@@ -126,6 +224,52 @@ impl DiffProvider {
         match self {
             #[cfg(feature = "git")]
             Self::Git => git::for_each_changed_file(cwd, f),
+            Self::None => bail!("No diff support compiled in"),
+        }
+    }
+
+    fn list_status(&self, cwd: &Path) -> Result<Vec<GitStatusEntry>> {
+        match self {
+            #[cfg(feature = "git")]
+            Self::Git => git::list_status(cwd),
+            Self::None => bail!("No diff support compiled in"),
+        }
+    }
+
+    fn stage_file(&self, cwd: &Path, path: &Path) -> Result<()> {
+        match self {
+            #[cfg(feature = "git")]
+            Self::Git => git::stage_file(cwd, path),
+            Self::None => bail!("No diff support compiled in"),
+        }
+    }
+
+    fn stage_all(&self, cwd: &Path) -> Result<()> {
+        match self {
+            #[cfg(feature = "git")]
+            Self::Git => git::stage_all(cwd),
+            Self::None => bail!("No diff support compiled in"),
+        }
+    }
+
+    fn commit(&self, cwd: &Path, message: &str) -> Result<()> {
+        match self {
+            #[cfg(feature = "git")]
+            Self::Git => git::commit(cwd, message),
+            Self::None => bail!("No diff support compiled in"),
+        }
+    }
+
+    fn file_diff(
+        &self,
+        cwd: &Path,
+        path: &Path,
+        section: StagingSection,
+        untracked: bool,
+    ) -> Result<String> {
+        match self {
+            #[cfg(feature = "git")]
+            Self::Git => git::file_diff(cwd, path, section, untracked),
             Self::None => bail!("No diff support compiled in"),
         }
     }

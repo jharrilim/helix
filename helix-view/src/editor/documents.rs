@@ -157,10 +157,14 @@ impl Editor {
         id
     }
 
-    fn new_file_from_document(&mut self, action: Action, doc: Document) -> DocumentId {
+    pub fn new_file_from_document(&mut self, action: Action, doc: Document) -> DocumentId {
         let id = self.new_document(doc);
         self.switch(id, action);
         id
+    }
+
+    pub fn open_document(&mut self, doc: Document, action: Action) -> DocumentId {
+        self.new_file_from_document(action, doc)
     }
 
     pub fn new_file(&mut self, action: Action) -> DocumentId {

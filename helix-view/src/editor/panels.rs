@@ -206,4 +206,90 @@ impl Editor {
                 && self.terminal.focus == crate::terminal::TerminalFocus::Insert
         })
     }
+
+    pub fn open_git_panel(&mut self) {
+        if let Some(panel_id) = self.git.panel_id {
+            if !self.tree.is_git_panel(self.tree.focus) {
+                self.enter_normal_mode();
+                let (view, doc) = current!(self);
+                doc.append_changes_to_history(view);
+            }
+            self.tree.focus = panel_id;
+            return;
+        }
+
+        let panel_id = self.tree.split_git_panel(crate::tree::Layout::Vertical);
+        self.git.panel_id = Some(panel_id);
+        self.tree.focus = panel_id;
+        self._refresh();
+    }
+
+    pub fn close_git_panel(&mut self) {
+        let Some(panel_id) = self.git.panel_id.take() else {
+            return;
+        };
+        if self.tree.focus == panel_id {
+            self.tree.focus = self.tree.prev();
+        }
+        if self.tree.contains(panel_id) {
+            self.tree.remove(panel_id);
+        }
+        self._refresh();
+    }
+
+    pub fn focus_git_panel(&mut self) {
+        if let Some(panel_id) = self.git.panel_id {
+            if !self.tree.is_git_panel(self.tree.focus) {
+                self.enter_normal_mode();
+                let (view, doc) = current!(self);
+                doc.append_changes_to_history(view);
+            }
+            self.tree.focus = panel_id;
+        }
+    }
+
+    pub fn focus_editor_from_git(&mut self) {
+        if self.tree.is_git_panel(self.tree.focus) {
+            let focus = self
+                .tree
+                .views()
+                .map(|(view, _)| view.id)
+                .next()
+                .unwrap_or(self.tree.focus);
+            self.tree.focus = focus;
+        }
+    }
+
+    pub fn git_cwd(&self) -> PathBuf {
+        self.last_cwd
+            .clone()
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+
+    pub fn apply_git_status(&mut self, entries: Vec<helix_vcs::GitStatusEntry>) {
+        self.git.entries = entries;
+        self.git.loading = false;
+        self.git.error = None;
+        if self.git.selection.is_none() {
+            if self.git.unstaged().next().is_some() {
+                self.git.selection = Some(crate::git::GitSelection {
+                    section: helix_vcs::StagingSection::Unstaged,
+                    index: 0,
+                });
+            } else if self.git.staged().next().is_some() {
+                self.git.selection = Some(crate::git::GitSelection {
+                    section: helix_vcs::StagingSection::Staged,
+                    index: 0,
+                });
+            }
+        }
+        self._refresh();
+    }
+
+    pub fn set_git_error(&mut self, error: String) {
+        self.git.loading = false;
+        self.git.error = Some(error);
+        self._refresh();
+    }
 }

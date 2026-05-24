@@ -8,6 +8,7 @@ pub mod document;
 pub mod editor;
 pub mod events;
 pub mod expansion;
+pub mod git;
 pub mod graphics;
 pub mod gutter;
 pub mod handlers;
@@ -77,10 +78,11 @@ pub use agent::{
     AgentBlock, AgentBlockKind, AgentFocus, AgentSessionMeta, AgentSettings, AgentState,
     ShellBlockStatus,
 };
+pub use git::{GitActionRects, GitSelection, GitState};
 pub use terminal::{TerminalFocus, TerminalSettings, TerminalState};
 pub use document::Document;
 pub use editor::Editor;
 use helix_core::char_idx_at_visual_offset;
 pub use theme::Theme;
-pub use tree::{AgentPanel, TerminalPanel};
+pub use tree::{AgentPanel, GitPanel, TerminalPanel};
 pub use view::View;

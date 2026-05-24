@@ -46,9 +46,22 @@ impl Editor {
             return;
         }
 
+        if self.tree.is_git_panel(view_id) {
+            if !self.tree.is_git_panel(self.tree.focus) {
+                self.enter_normal_mode();
+                let (view, doc) = current!(self);
+                doc.append_changes_to_history(view);
+            }
+            self.tree.focus = view_id;
+            return;
+        }
+
         // Reset mode to normal and ensure any pending changes are committed in the old document.
         self.enter_normal_mode();
-        if !self.tree.is_agent_panel(self.tree.focus) && !self.tree.is_terminal_panel(self.tree.focus) {
+        if !self.tree.is_agent_panel(self.tree.focus)
+            && !self.tree.is_terminal_panel(self.tree.focus)
+            && !self.tree.is_git_panel(self.tree.focus)
+        {
             let (view, doc) = current!(self);
             doc.append_changes_to_history(view);
         }

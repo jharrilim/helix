@@ -15,7 +15,9 @@ impl Editor {
 
         self.mode = Mode::Normal;
 
-        if self.tree.is_agent_panel(self.tree.focus) || self.tree.is_terminal_panel(self.tree.focus)
+        if self.tree.is_agent_panel(self.tree.focus)
+            || self.tree.is_terminal_panel(self.tree.focus)
+            || self.tree.is_git_panel(self.tree.focus)
         {
             return;
         }
