@@ -79,21 +79,13 @@ impl FsBridge {
 
 use std::sync::Arc;
 
+#[derive(Default)]
 pub struct AgentController {
     runtime: Option<AgentRuntimeHandle>,
     events_rx: Option<UnboundedReceiver<AgentEvent>>,
     fs_bridge: Option<FsBridge>,
 }
 
-impl Default for AgentController {
-    fn default() -> Self {
-        Self {
-            runtime: None,
-            events_rx: None,
-            fs_bridge: None,
-        }
-    }
-}
 
 impl AgentController {
     pub fn is_running(&self) -> bool {

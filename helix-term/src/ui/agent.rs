@@ -476,6 +476,7 @@ fn active_session_title(editor: &Editor) -> Option<&str> {
         .filter(|title| !title.trim().is_empty())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_transcript(
     editor: &Editor,
     area: Rect,
@@ -564,6 +565,7 @@ fn line_style(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_line_with_selection(
     surface: &mut Surface,
     x: u16,
@@ -614,6 +616,7 @@ fn render_line_with_selection(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_text_segment(
     surface: &mut Surface,
     x: u16,
@@ -1149,13 +1152,13 @@ fn delete_word_backward(editor: &mut Editor) {
     let before = &editor.agent.input[..editor.agent.input_cursor];
     let mut boundary = before.len();
     let mut chars = before.chars().rev().peekable();
-    while let Some(c) = chars.next() {
+    for c in chars.by_ref() {
         if !c.is_whitespace() {
             break;
         }
         boundary -= c.len_utf8();
     }
-    while let Some(c) = chars.next() {
+    for c in chars {
         if c.is_whitespace() {
             break;
         }

@@ -58,12 +58,12 @@ impl EventListener for ChannelListener {
             }
             Event::ChildExit(status) => {
                 #[cfg(unix)]
-                let signal = status.signal().map(|signal| signal as i32);
+                let signal = status.signal();
                 #[cfg(not(unix))]
                 let signal = None;
                 let _ = self.tx.send(TerminalEvent::Exited {
                     id: self.id.clone(),
-                    code: status.code().map(|code| code as i32),
+                    code: status.code(),
                     signal,
                 });
             }
@@ -175,8 +175,10 @@ pub fn spawn_live_session(
 
     let pty = tty::new(&options, window_size, 0)?;
 
-    let mut term_config = Config::default();
-    term_config.scrolling_history = config.scrollback_lines;
+    let term_config = Config {
+        scrolling_history: config.scrollback_lines,
+        ..Default::default()
+    };
 
     let size = TermSize {
         columns: cols as usize,

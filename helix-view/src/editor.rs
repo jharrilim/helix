@@ -2632,7 +2632,7 @@ impl Editor {
             .clone()
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
-        if self.terminal.sessions.get(&session_id).is_none() {
+        if !self.terminal.sessions.contains_key(&session_id) {
             self.terminal.insert_session(session_id.clone(), cwd);
         } else if !self.terminal.session_order.contains(&session_id) {
             self.terminal.session_order.push(session_id.clone());

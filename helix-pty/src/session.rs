@@ -68,8 +68,10 @@ pub struct TerminalSession {
 
 impl TerminalSession {
     pub fn new(rows: u16, cols: u16, scrollback_lines: usize) -> Self {
-        let mut config = Config::default();
-        config.scrolling_history = scrollback_lines;
+        let config = Config {
+            scrolling_history: scrollback_lines,
+            ..Default::default()
+        };
         let size = TerminalSize {
             columns: cols.max(2) as usize,
             screen_lines: rows.max(1) as usize,

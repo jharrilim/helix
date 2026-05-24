@@ -139,14 +139,11 @@ async fn run_runtime(
     acp::Client
         .builder()
         .on_receive_notification(
-            {
-                let debug_logging = debug_logging;
-                move |notification: SessionNotification, _cx| {
-                    let events = events.clone();
-                    async move {
-                        send_session_update(&events, "session/update", notification.update, debug_logging);
-                        Ok(())
-                    }
+            move |notification: SessionNotification, _cx| {
+                let events = events.clone();
+                async move {
+                    send_session_update(&events, "session/update", notification.update, debug_logging);
+                    Ok(())
                 }
             },
             acp::on_receive_notification!(),
@@ -154,7 +151,6 @@ async fn run_runtime(
         .on_receive_notification(
             {
                 let events = events_tx.clone();
-                let debug_logging = debug_logging;
                 move |notification: AgentNotification, _cx| {
                     let events = events.clone();
                     async move {
@@ -185,7 +181,6 @@ async fn run_runtime(
         .on_receive_notification(
             {
                 let events = events_tx.clone();
-                let debug_logging = debug_logging;
                 move |notification: CursorExtensionNotification, _cx| {
                     let events = events.clone();
                     async move {
@@ -523,7 +518,8 @@ async fn run_runtime(
                             });
                         }
                         AgentCommand::SetMode { mode_id } => {
-                            if let Some(sid) = active_session.lock().clone() {
+                            let sid = active_session.lock().clone();
+                            if let Some(sid) = sid {
                                 connection
                                     .send_request(SetSessionModeRequest::new(
                                         sid,

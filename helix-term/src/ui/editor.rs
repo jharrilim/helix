@@ -1162,11 +1162,10 @@ impl EditorView {
     }
 
     fn handle_terminal_normal_key(&mut self, cxt: &mut commands::Context, key: KeyEvent) -> bool {
-        if cxt.editor.terminal.tab_menu_active {
-            if crate::ui::terminal_tabs::handle_key(cxt.editor, cxt.jobs, key) {
+        if cxt.editor.terminal.tab_menu_active
+            && crate::ui::terminal_tabs::handle_key(cxt.editor, cxt.jobs, key) {
                 return true;
             }
-        }
 
         if self.terminal_window_pending {
             self.terminal_window_pending = false;
@@ -1598,7 +1597,7 @@ impl Component for EditorView {
                 }
 
                 if cx.editor.terminal_panel_focused() {
-                    crate::ui::terminal::paste_to_terminal(cx.editor, &contents);
+                    crate::ui::terminal::paste_to_terminal(cx.editor, contents);
                     return EventResult::Consumed(None);
                 }
 
@@ -1635,38 +1634,34 @@ impl Component for EditorView {
                 let agent_leaf_focused = cx.editor.tree.is_agent_panel(cx.editor.tree.focus);
                 let terminal_leaf_focused =
                     cx.editor.tree.is_terminal_panel(cx.editor.tree.focus);
-                if cx.editor.agent_panel_focused() {
-                    if !self.panel_keymap_passthrough(key)
+                if cx.editor.agent_panel_focused()
+                    && !self.panel_keymap_passthrough(key)
                         && crate::ui::agent::handle_key(cx.editor, key)
                     {
                         return Self::event_with_callbacks(&mut cx);
                     }
-                }
-                if cx.editor.terminal_panel_focused() {
-                    if !self.panel_keymap_passthrough_without_space(key)
+                if cx.editor.terminal_panel_focused()
+                    && !self.panel_keymap_passthrough_without_space(key)
                         && crate::ui::terminal::handle_key(cx.editor, key)
                     {
                         return Self::event_with_callbacks(&mut cx);
                     }
-                }
 
-                if agent_leaf_focused && !cx.editor.agent_panel_focused() {
-                    if !self.panel_keymap_passthrough(key) {
+                if agent_leaf_focused && !cx.editor.agent_panel_focused()
+                    && !self.panel_keymap_passthrough(key) {
                         if self.handle_agent_normal_key(&mut cx, key) {
                             return Self::event_with_callbacks(&mut cx);
                         }
                         return EventResult::Consumed(None);
                     }
-                }
 
-                if terminal_leaf_focused && !cx.editor.terminal_panel_focused() {
-                    if !self.panel_keymap_passthrough(key) {
+                if terminal_leaf_focused && !cx.editor.terminal_panel_focused()
+                    && !self.panel_keymap_passthrough(key) {
                         if self.handle_terminal_normal_key(&mut cx, key) {
                             return Self::event_with_callbacks(&mut cx);
                         }
                         return EventResult::Consumed(None);
                     }
-                }
 
                 let mode = if agent_leaf_focused || terminal_leaf_focused {
                     Mode::Normal

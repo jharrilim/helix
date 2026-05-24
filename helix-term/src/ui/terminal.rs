@@ -295,7 +295,7 @@ fn render_panel(
             }
 
             let grid_point = to_terminal(viewport_point_to_grid(term, row, col));
-            let mut style = cell_to_style(cell, &content.colors, default_fg, default_bg);
+            let mut style = cell_to_style(cell, content.colors, default_fg, default_bg);
 
             if let Some(search) = search {
                 if search
@@ -340,7 +340,7 @@ fn render_panel(
                 if offset == 0 {
                     surface[(x, y)].set_symbol(&c.to_string()).set_style(style);
                 } else {
-                    surface[(x, y)].set_symbol(" ".into()).set_style(style);
+                    surface[(x, y)].set_symbol(" ").set_style(style);
                 }
                 col += 1;
             }
@@ -515,10 +515,9 @@ pub fn handle_mouse(editor: &mut Editor, event: MouseEvent) -> EventResult {
             if let Some(session_id) = session_id_at_tab(editor, panel.area, event.row, event.column)
             {
                 editor.switch_terminal_session(&session_id);
-            } else if contains_coords(header, event.row, event.column) {
-                editor.terminal.focus = TerminalFocus::Normal;
-                editor.mode = helix_view::document::Mode::Normal;
-            } else if contains_coords(tab_area, event.row, event.column) {
+            } else if contains_coords(header, event.row, event.column)
+                || contains_coords(tab_area, event.row, event.column)
+            {
                 editor.terminal.focus = TerminalFocus::Normal;
                 editor.mode = helix_view::document::Mode::Normal;
             } else if contains_coords(body, event.row, event.column) {
@@ -682,16 +681,14 @@ fn handle_normal_key_impl(editor: &mut Editor, key: KeyEvent, allow_search_nav: 
     }
 
     if allow_search_nav {
-        if key.code == KeyCode::Char('n') && !key.modifiers.contains(KeyModifiers::SHIFT) {
-            if search_next(editor, false) {
+        if key.code == KeyCode::Char('n') && !key.modifiers.contains(KeyModifiers::SHIFT)
+            && search_next(editor, false) {
                 return true;
             }
-        }
-        if key.code == KeyCode::Char('N') && key.modifiers.contains(KeyModifiers::SHIFT) {
-            if search_next(editor, true) {
+        if key.code == KeyCode::Char('N') && key.modifiers.contains(KeyModifiers::SHIFT)
+            && search_next(editor, true) {
                 return true;
             }
-        }
     }
 
     if editor.terminal.focus == TerminalFocus::Select {

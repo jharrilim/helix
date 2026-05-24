@@ -11,21 +11,13 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::job;
 
+#[derive(Default)]
 pub struct TerminalController {
     runtime: Option<TerminalRuntimeHandle>,
     events_rx: Option<UnboundedReceiver<TerminalEvent>>,
     sessions: HashMap<String, SessionHandle>,
 }
 
-impl Default for TerminalController {
-    fn default() -> Self {
-        Self {
-            runtime: None,
-            events_rx: None,
-            sessions: HashMap::new(),
-        }
-    }
-}
 
 impl TerminalController {
     pub fn is_running(&self) -> bool {
