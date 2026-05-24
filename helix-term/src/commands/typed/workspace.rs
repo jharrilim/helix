@@ -1,0 +1,160 @@
+use super::super::prelude::*;
+use helix_core::command_line::Args;
+use helix_stdx::path::home_dir;
+use super::super::Context;
+use super::lsp::lsp_restart;
+use helix_view::editor::ConfigEvent;
+fn parse_first_arg_as_dir(args: &Args, last_cwd: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+    match args.first().map(AsRef::as_ref) {
+        Some("-") => last_cwd.ok_or_else(|| anyhow!("No previous working directory")),
+        Some(path) => Ok(helix_stdx::path::expand_tilde(Path::new(path)).into_owned()),
+        None => Ok(home_dir()?),
+    }
+}
+
+/// Helper function to apply a directory change for an already-parsed Path ref
+#[inline]
+fn apply_directory_change(cx: &mut compositor::Context, dir: &Path) -> anyhow::Result<()> {
+    cx.editor.set_cwd(dir).map_err(|err| {
+        anyhow!(
+            "Could not change working directory to '{}': {err}",
+            dir.display()
+        )
+    })?;
+
+    cx.editor.set_status(format!(
+        "Current working directory is now {}",
+        helix_stdx::env::current_working_dir().display()
+    ));
+
+    Ok(())
+}
+
+pub(crate) fn change_current_directory(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    let dir = parse_first_arg_as_dir(&args, cx.editor.get_last_cwd().map(|p| p.to_path_buf()))?;
+
+    apply_directory_change(cx, &dir)
+}
+
+pub(crate) fn show_directory_stack(
+    cx: &mut compositor::Context,
+    _args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    let serialized_stack = cx
+        .editor
+        .dir_stack
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    if !serialized_stack.is_empty() {
+        cx.editor.set_status(serialized_stack);
+    } else {
+        cx.editor.set_error("Stack is empty");
+    }
+
+    Ok(())
+}
+
+pub(crate) fn push_directory(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    // avoid an unbounded directory stack and reallocs for perf
+    if cx.editor.dir_stack.len() == cx.editor.dir_stack.capacity() {
+        cx.editor.dir_stack.pop_back();
+    }
+
+    cx.editor
+        .dir_stack
+        .push_front(helix_stdx::env::current_working_dir());
+
+    change_current_directory(cx, args, event)
+}
+
+pub(crate) fn pop_directory(
+    cx: &mut compositor::Context,
+    _args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    if let Some(dir) = cx.editor.dir_stack.pop_front() {
+        apply_directory_change(cx, &dir)?;
+    } else {
+        cx.editor.set_error("Stack is empty");
+    }
+
+    Ok(())
+}
+
+pub(crate) fn show_current_directory(
+    cx: &mut compositor::Context,
+    _args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    let cwd = helix_stdx::env::current_working_dir();
+    let message = format!("Current working directory is {}", cwd.display());
+
+    if cwd.exists() {
+        cx.editor.set_status(message);
+    } else {
+        cx.editor.set_error(format!("{} (deleted)", message));
+    }
+    Ok(())
+}
+
+pub(crate) fn trust_workspace(
+    cx: &mut compositor::Context,
+    args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    helix_loader::workspace_trust::WorkspaceTrust::load(false).trust_workspace();
+
+    cx.editor.config_events.0.send(ConfigEvent::Refresh)?;
+    // HACK
+    lsp_restart(cx, args, event)
+}
+
+pub(crate) fn untrust_workspace(
+    _cx: &mut compositor::Context,
+    _args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    helix_loader::workspace_trust::WorkspaceTrust::load(false).untrust_workspace();
+    Ok(())
+}
+
