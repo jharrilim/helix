@@ -15,6 +15,7 @@ pub mod info;
 pub mod input;
 pub mod keyboard;
 pub mod register;
+pub mod terminal;
 pub mod theme;
 pub mod tree;
 pub mod view;
@@ -73,9 +74,10 @@ pub fn align_view(doc: &mut Document, view: &View, align: Align) {
 }
 
 pub use agent::{AgentFocus, AgentSessionMeta, AgentSettings, AgentState, AgentTranscriptEntry};
+pub use terminal::{TerminalFocus, TerminalSettings, TerminalState};
 pub use document::Document;
 pub use editor::Editor;
 use helix_core::char_idx_at_visual_offset;
 pub use theme::Theme;
-pub use tree::AgentPanel;
+pub use tree::{AgentPanel, TerminalPanel};
 pub use view::View;

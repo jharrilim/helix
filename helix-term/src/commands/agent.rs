@@ -7,7 +7,7 @@ use helix_view::{agent::AgentSessionMeta, Editor};
 use super::Context;
 use crate::agent;
 use crate::compositor::Compositor;
-use crate::job::Jobs;
+use crate::job::{Callback, Jobs};
 use crate::ui::{overlay::overlaid, Picker, PickerColumn};
 
 pub fn agent_open_editor(editor: &mut Editor, jobs: &mut Jobs) {
@@ -23,6 +23,19 @@ pub fn agent_open_editor(editor: &mut Editor, jobs: &mut Jobs) {
 }
 
 pub fn agent_close_editor(editor: &mut Editor) {
+    close_agent_panel_editor(editor);
+}
+
+pub fn close_agent_panel_editor(editor: &mut Editor) {
+    crate::ui::agent_cursor::cancel_pending_cursor_requests(editor);
+    crate::ui::agent_permission::cancel_pending_permission(editor);
+    agent::with_controller(|controller| controller.shutdown());
+    editor.agent.active_session = None;
+    editor.agent.mode = None;
+    editor.agent.pending = false;
+    editor.agent.pending_permission = None;
+    editor.agent.cursor_request = None;
+    editor.agent.cursor_question_flow = None;
     editor.close_agent_panel();
 }
 
@@ -68,11 +81,36 @@ pub fn agent_stop_editor(editor: &mut Editor) {
     editor.agent.pending = false;
     if was_pending {
         editor.agent.status = Some("agent turn cancelled".into());
-    } else {
-        editor.agent.active_session = None;
-        editor.agent.mode = None;
-        editor.agent.status = Some("agent session stopped".into());
     }
+}
+
+pub fn agent_new_editor(editor: &mut Editor, jobs: &mut Jobs) {
+    if !editor.agent_settings().enable {
+        editor.set_error("agent integration is disabled in config");
+        return;
+    }
+
+    editor.open_agent_panel();
+    editor.focus_agent_panel();
+
+    if let Err(err) = agent::ensure_runtime_started(editor, jobs) {
+        editor.set_error(format!("{err:#}"));
+        return;
+    }
+
+    editor.agent.clear_transcript();
+    editor.agent.error = None;
+    editor.agent.pending = true;
+    editor.agent.status = Some("starting new agent session...".into());
+
+    let cwd = editor
+        .last_cwd
+        .clone()
+        .or_else(|| std::env::current_dir().ok());
+
+    agent::with_controller(|controller| {
+        controller.new_session(cwd);
+    });
 }
 
 pub fn agent_clear_editor(editor: &mut Editor) {
@@ -80,7 +118,7 @@ pub fn agent_clear_editor(editor: &mut Editor) {
     editor.agent.error = None;
 }
 
-pub fn agent_history_editor(editor: &mut Editor, jobs: &mut Jobs) {
+pub fn agent_history_editor(editor: &mut Editor, jobs: &mut Jobs, cwd_only: bool) {
     if !editor.agent_settings().enable {
         editor.set_error("agent integration is disabled in config");
         return;
@@ -92,6 +130,7 @@ pub fn agent_history_editor(editor: &mut Editor, jobs: &mut Jobs) {
     }
 
     editor.agent.open_session_picker = true;
+    editor.agent.history_filter_cwd = cwd_only;
     editor.agent.pending = true;
     editor.set_status("loading agent sessions...");
 
@@ -106,15 +145,39 @@ pub fn agent_history_editor(editor: &mut Editor, jobs: &mut Jobs) {
 }
 
 pub fn show_history_picker(editor: &mut Editor, compositor: &mut Compositor) {
-    let sessions = editor.agent.sessions.clone();
+    let preferred_cwd = editor
+        .last_cwd
+        .clone()
+        .or_else(|| std::env::current_dir().ok());
+    let mut sessions = editor.agent.sessions.clone();
+    if editor.agent.history_filter_cwd {
+        if let Some(cwd) = preferred_cwd.as_ref() {
+            sessions.retain(|session| session.cwd == *cwd);
+        }
+        editor.agent.history_filter_cwd = false;
+    }
+    sort_agent_sessions(&mut sessions, preferred_cwd.as_deref());
     if sessions.is_empty() {
         editor.set_error("no agent sessions found");
         return;
     }
 
+    let cwd_hint = preferred_cwd
+        .as_ref()
+        .map(|cwd| path::get_relative_path(cwd).to_string_lossy().into_owned());
+
     let columns = [
         PickerColumn::new("title", |item: &AgentSessionMeta, _| {
-            item.title.as_deref().unwrap_or(&item.id).into()
+            item.title
+                .as_deref()
+                .filter(|title| !title.is_empty())
+                .map(|title| title.to_string())
+                .unwrap_or_else(|| {
+                    path::get_relative_path(&item.cwd)
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .into()
         }),
         PickerColumn::new("updated", |item: &AgentSessionMeta, _| {
             item.updated_at.as_deref().unwrap_or("").into()
@@ -138,7 +201,32 @@ pub fn show_history_picker(editor: &mut Editor, compositor: &mut Compositor) {
     })
     .truncate_start(false);
 
+    if let Some(hint) = cwd_hint.as_deref() {
+        editor.set_status(format!("agent sessions (cwd: {hint})"));
+    }
+
     compositor.push(Box::new(overlaid(picker)));
+}
+
+pub fn sort_agent_sessions(sessions: &mut [AgentSessionMeta], preferred_cwd: Option<&std::path::Path>) {
+    sessions.sort_by(|left, right| {
+        let left_preferred = preferred_cwd
+            .map(|cwd| left.cwd == cwd)
+            .unwrap_or(false);
+        let right_preferred = preferred_cwd
+            .map(|cwd| right.cwd == cwd)
+            .unwrap_or(false);
+        right_preferred
+            .cmp(&left_preferred)
+            .then_with(|| right.updated_at.cmp(&left.updated_at))
+            .then_with(|| {
+                left.title
+                    .as_deref()
+                    .unwrap_or("")
+                    .cmp(right.title.as_deref().unwrap_or(""))
+            })
+            .then_with(|| right.id.cmp(&left.id))
+    });
 }
 
 pub fn load_session_editor(
@@ -205,7 +293,11 @@ pub fn agent_clear(cx: &mut Context) {
 }
 
 pub fn agent_history(cx: &mut Context) {
-    agent_history_editor(cx.editor, cx.jobs);
+    agent_history_editor(cx.editor, cx.jobs, false);
+}
+
+pub fn agent_new(cx: &mut Context) {
+    agent_new_editor(cx.editor, cx.jobs);
 }
 
 pub fn agent_mode_editor(editor: &mut Editor, mode_id: Option<String>) {
@@ -215,17 +307,33 @@ pub fn agent_mode_editor(editor: &mut Editor, mode_id: Option<String>) {
         });
         editor.agent.mode = Some(mode_id);
         editor.set_status("agent mode updated");
+    }
+}
+
+pub fn open_mode_picker(cx: &mut Context) {
+    if cx.editor.agent.available_modes.is_empty() {
+        cx.editor.set_error("no agent modes available");
         return;
     }
 
+    cx.callback.push(Box::new(|compositor, cx| {
+        crate::ui::agent_cursor::show_mode_picker(cx.editor, compositor);
+    }));
+}
+
+pub fn open_mode_picker_from_jobs(editor: &mut Editor, jobs: &mut Jobs) {
     if editor.agent.available_modes.is_empty() {
         editor.set_error("no agent modes available");
         return;
     }
 
-    editor.agent.open_mode_picker = true;
+    jobs.callback(async move {
+        Ok(Callback::EditorCompositor(Box::new(|editor, compositor| {
+            crate::ui::agent_cursor::show_mode_picker(editor, compositor);
+        })))
+    });
 }
 
 pub fn agent_mode(cx: &mut Context) {
-    agent_mode_editor(cx.editor, None);
+    open_mode_picker(cx);
 }

@@ -19,6 +19,8 @@ callbacks that the editor UI can consume.
   - `ListSessions` lists historical sessions, optionally filtered by cwd.
   - `SendPrompt` sends a user prompt to the active session.
   - `Cancel` sends ACP `session/cancel` for the active in-flight turn.
+  - `CloseSession` sends ACP `session/close` when supported, then clears local state.
+  - `NewSession` closes the current session (when present) and starts a new one.
   - `Stop` clears local active session state while keeping the runtime alive.
   - `SetMode` sends ACP `session/set_mode`.
 - Runtime events for terminal/editor UI layers:
@@ -34,7 +36,12 @@ callbacks that the editor UI can consume.
 - Cursor MCP config passthrough from `.cursor/mcp.json`.
 - Cursor extension method handling for `cursor/ask_question`,
   `cursor/create_plan`, and notification methods.
-- Permission request handling that prefers `allow-once`, then `allow-always`.
+- Permission request handling with interactive UI picker (optional
+  `auto-approve-permissions` fallback).
+- Editor context in prompts: file `ResourceLink` and selection text when
+  `include-editor-context` is enabled.
+- Runtime shutdown when the agent panel closes.
+- Gated debug logging via `debug-logging` config (default off).
 
 ## Protocol Compatibility
 
@@ -54,12 +61,12 @@ behavior to Helix.
 | `session/list` | Client -> Agent | Supported | Used by the agent history picker; follows `nextCursor` pagination when present. |
 | `session/prompt` | Client -> Agent | Supported | Sends text prompts to the active session and reports turn start/finish events. |
 | `session/cancel` | Client -> Agent | Supported | Used by `AgentCommand::Cancel` during in-flight turns. |
-| `session/close` | Client -> Agent | Not implemented | `AgentCommand::Stop` clears local session state only. |
+| `session/close` | Client -> Agent | Supported | Used by `CloseSession` and `:agent-new` when the agent advertises close support. |
 | `session/resume` | Client -> Agent | Not implemented | Resume-without-history is not modeled separately from `session/load`. |
 | `session/set_config_option` | Client -> Agent | Not implemented | Agent config options are not surfaced. |
 | `session/set_mode` | Client -> Agent | Supported | Used by `AgentCommand::SetMode`; default mode can be applied after session start/load. |
-| `session/update` | Agent -> Client | Partial | Message chunks, thought chunks, tool calls, plans, and session info updates are mapped to `AgentEvent`; unsupported metadata updates are ignored. |
-| `session/request_permission` | Agent -> Client | Partial | Requests are accepted and auto-approved with Cursor-friendly option preference; interactive UI is not implemented yet. |
+| `session/update` | Agent -> Client | Partial | Message chunks, tool calls/updates, plans, and session info updates are mapped to `AgentEvent`; unsupported metadata updates are ignored. |
+| `session/request_permission` | Agent -> Client | Supported | Interactive picker by default; optional auto-approve via config. |
 | `fs/read_text_file` | Agent -> Client | Supported | Advertised through `fs.readTextFile` and routed to the caller-provided `FsReadFn`. |
 | `fs/write_text_file` | Agent -> Client | Supported | Advertised through `fs.writeTextFile` and routed to the caller-provided `FsWriteFn`; conflicts and errors are returned as JSON-RPC errors. |
 | `terminal/create` | Agent -> Client | Not implemented | Terminal capabilities are not advertised. |
@@ -67,10 +74,10 @@ behavior to Helix.
 | `terminal/wait_for_exit` | Agent -> Client | Not implemented | Terminal capabilities are not advertised. |
 | `terminal/kill` | Agent -> Client | Not implemented | Terminal capabilities are not advertised. |
 | `terminal/release` | Agent -> Client | Not implemented | Terminal capabilities are not advertised. |
-| prompt text content | Client -> Agent | Supported | `SendPrompt` sends `ContentBlock::Text`. |
+| prompt text content | Client -> Agent | Supported | `SendPrompt` sends text plus optional file link and selection context. |
 | prompt image content | Client -> Agent | Not implemented | Image prompt capability is not advertised or modeled. |
 | prompt audio content | Client -> Agent | Not implemented | Audio prompt capability is not advertised or modeled. |
-| embedded context | Client -> Agent | Not implemented | Embedded context prompt capability is not advertised or modeled. |
+| embedded context | Client -> Agent | Partial | File path via `ResourceLink` and selection text block; full embedded context capability not advertised yet. |
 | MCP server capabilities | Client -> Agent | Partial | Cursor `.cursor/mcp.json` stdio servers are passed on session/new and session/load. |
 | Cursor extensions | Agent -> Client | Partial | Blocking ask/create-plan requests are bridged to Helix UI; notification methods render in transcript. |
 
@@ -91,7 +98,8 @@ In Helix, those responsibilities live in `helix-view` and `helix-term`.
 
 - Only local subprocess agents over stdio are supported.
 - Remote ACP transports such as HTTP or WebSocket are not implemented here.
-- Permission requests are not yet interactive at this layer.
+- Permission requests are interactive in Helix unless `auto-approve-permissions`
+  is enabled.
 - Transcript replay on `session/load` depends on the agent. Cursor's `agent acp`
   currently restores session metadata without streaming prior messages; see
   `book/src/agent.md` for details.

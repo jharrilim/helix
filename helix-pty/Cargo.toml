@@ -1,0 +1,26 @@
+[package]
+name = "helix-pty"
+description = "PTY and terminal emulator plumbing for Helix"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+alacritty_terminal.workspace = true
+anyhow = "1"
+home = "0.5"
+log = "0.4"
+parking_lot.workspace = true
+thiserror.workspace = true
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "macros", "time"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile.workspace = true

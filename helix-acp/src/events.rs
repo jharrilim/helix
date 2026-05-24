@@ -17,7 +17,8 @@ pub enum AgentMessage {
         text: String,
     },
     ToolCall {
-        name: String,
+        id: String,
+        title: String,
         status: String,
         detail: Option<String>,
     },
@@ -40,6 +41,20 @@ pub struct AgentModeInfo {
     pub description: Option<String>,
 }
 
+/// Editor buffer context attached to outgoing prompts.
+#[derive(Debug, Clone)]
+pub struct AgentPromptContext {
+    pub file_path: PathBuf,
+    pub selection: Option<String>,
+}
+
+/// Permission option for an interactive permission request.
+#[derive(Debug, Clone)]
+pub struct AgentPermissionOption {
+    pub id: String,
+    pub label: String,
+}
+
 /// Events emitted by the ACP runtime to the UI layer.
 #[derive(Debug, Clone)]
 pub enum AgentEvent {
@@ -48,7 +63,9 @@ pub enum AgentEvent {
         agent_version: Option<String>,
         auth_methods: Vec<String>,
         load_session: bool,
+        close_session: bool,
     },
+    SessionClosed,
     Authenticated {
         method_id: String,
     },
@@ -73,6 +90,12 @@ pub enum AgentEvent {
         available_modes: Vec<AgentModeInfo>,
     },
     Message(AgentMessage),
+    ToolCallUpdated {
+        id: String,
+        title: Option<String>,
+        status: Option<String>,
+        detail: Option<String>,
+    },
     TurnStarted,
     TurnFinished {
         stop_reason: Option<String>,
@@ -88,6 +111,7 @@ pub enum AgentEvent {
         request_id: u64,
         title: String,
         message: String,
+        options: Vec<AgentPermissionOption>,
     },
     /// Blocking Cursor extension request that requires UI interaction.
     CursorRequest {
@@ -116,15 +140,20 @@ pub enum AgentCommand {
     },
     SendPrompt {
         text: String,
+        context: Option<AgentPromptContext>,
     },
     Cancel,
+    CloseSession,
+    NewSession {
+        cwd: Option<PathBuf>,
+    },
     Stop,
     SetMode {
         mode_id: String,
     },
     RespondPermission {
         request_id: u64,
-        approved: bool,
+        option_id: Option<String>,
     },
     RespondCursor {
         request_id: u64,

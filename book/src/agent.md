@@ -21,6 +21,9 @@ auth-method = "cursor_login"   # optional; auto-picked when omitted
 skip-authenticate = false      # optional escape hatch
 default-mode = "agent"         # optional: agent, plan, or ask
 # mcp-config-path = "/path/to/mcp.json"
+debug-logging = false          # verbose ACP debug lines in the agent pane
+auto-approve-permissions = false  # skip permission picker (headless use)
+include-editor-context = true  # attach buffer path and selection to prompts
 ```
 
 For Cursor, use `agent acp` as the command. Run `agent login` (or set
@@ -48,6 +51,7 @@ In normal mode, use the default `Space A` menu:
 | `Space A S` | Cancel in-flight turn, or stop/end session when idle |
 | `Space A C` | Clear the visible transcript |
 | `Space A h` | List and load agent sessions |
+| `Space A n` | Start a new agent session |
 | `Space A m` | Pick agent session mode |
 
 The same actions are available from the command line:
@@ -58,8 +62,10 @@ The same actions are available from the command line:
 | `:agent-close` | Close the agent pane |
 | `:agent-focus` | Focus the agent pane |
 | `:agent-send` | Send the current prompt |
-| `:agent-stop` | Cancel in-flight turn, or stop/end session when idle |
+| `:agent-stop` | Cancel in-flight turn, or close session when idle |
 | `:agent-history` | List and load agent sessions |
+| `:agent-history --cwd` | List sessions for the current working directory |
+| `:agent-new` | Start a new agent session |
 | `:agent-mode` | Pick agent session mode |
 | `:agent-mode plan` | Set agent session mode directly |
 
@@ -74,6 +80,7 @@ In agent normal mode:
 | Key | Action |
 | --- | --- |
 | `i` / `a` / `Enter` | Enter prompt insert mode |
+| `z` | Toggle expand/collapse of the focused tool call row |
 | `Ctrl-w w` | Move to the next pane |
 | `Ctrl-w h/j/k/l` | Move to the pane left/down/up/right |
 | `Ctrl-w q` | Close the agent pane |
@@ -101,11 +108,13 @@ agent normal mode, then use `Ctrl-w q`, `Space A c`, or `:agent-close` to close
 it.
 
 The transcript shows user prompts, assistant messages, thought/status updates,
-tool calls, plans, and errors when the agent reports them.
+tool calls, plans, and errors when the agent reports them. Tool calls render as
+collapsible rows (`▸ tool: name [status]`); press `z` or click the header to
+expand or collapse detail text.
 
 Hovering over the agent panel does not change focus. Click the prompt input to
 enter agent insert mode, or click and drag in the transcript to select visible
-text. Selected text is highlighted and copied to the register configured by
+text. Click a tool header to toggle its detail without starting a selection. Selected text is highlighted and copied to the register configured by
 `mouse-yank-register` when you release the mouse button, matching normal editor
 mouse selection. Use that register (for example `"` then the register name) to
 paste elsewhere.
@@ -137,6 +146,7 @@ Helix follows [Cursor's ACP client flow](https://cursor.com/docs/cli/acp):
 - `session/new` or `session/load` with MCP servers from `.cursor/mcp.json`
 - `session/prompt` with streaming `session/update` chunks
 - `session/cancel` when you press `Space A S` during an in-flight turn
+- `session/close` when you press `Space A S` while idle (when supported)
 - `session/set_mode` via `:agent-mode` or `Space A m`
 
 Cursor extension methods are supported:
@@ -148,6 +158,23 @@ Cursor extension methods are supported:
 
 MCP servers are loaded from the project `.cursor/mcp.json`, then
 `~/.cursor/mcp.json`, unless overridden by `mcp-config-path`.
+
+Closing the agent pane (`Space A c`, `:agent-close`, or `Ctrl-w q` from the
+agent pane) shuts down the `agent acp` subprocess. Reopening the pane starts a
+fresh runtime and session.
+
+When idle, `:agent-stop` sends ACP `session/close` when the agent advertises
+support, then clears local session state. Use `:agent-new` or `Space A n` to close
+the current session and start a new one without restarting the runtime.
+
+When the agent requests permission (for example to run a tool), Helix shows an
+interactive picker unless `auto-approve-permissions = true`.
+
+Outgoing prompts include the current editor buffer path and any non-empty
+selection when `include-editor-context = true` (the default).
+
+Set `debug-logging = true` to show verbose ACP protocol lines in the agent
+pane; this is off by default.
 
 ## File access and edits
 
@@ -172,8 +199,6 @@ from the buffer change.
 ## Current limitations
 
 - Only local stdio ACP agents are supported.
-- Agent permission requests auto-approve (`allow-once` when available) but are
-  not yet interactive in the UI.
 - Terminal capabilities from ACP are not exposed to agents yet.
 - Transcript replay on `session/load` still depends on agent behavior; Cursor's
   `agent acp` limitation remains unchanged.

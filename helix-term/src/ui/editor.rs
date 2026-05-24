@@ -1117,7 +1117,9 @@ impl EditorView {
                 key!('l') | ctrl!('l') | key!(Right) => cxt
                     .editor
                     .focus_direction(helix_view::tree::Direction::Right),
-                key!('q') | ctrl!('q') => cxt.editor.close_agent_panel(),
+                key!('q') | ctrl!('q') => {
+                    crate::commands::agent::close_agent_panel_editor(cxt.editor)
+                }
                 _ => cxt.editor.set_error("unsupported agent window command"),
             }
             return true;
@@ -1130,6 +1132,10 @@ impl EditorView {
         }
 
         crate::ui::agent::handle_normal_key(cxt.editor, key)
+    }
+
+    fn handle_terminal_normal_key(&mut self, cxt: &mut commands::Context, key: KeyEvent) -> bool {
+        crate::ui::terminal::handle_normal_key(cxt.editor, key)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1231,10 +1237,21 @@ impl EditorView {
             }
             return EventResult::Ignored(None);
         }
+        if super::terminal::panel_at_coords(cxt.editor, event.row, event.column).is_some() {
+            if !matches!(event.kind, MouseEventKind::Moved) {
+                return super::terminal::handle_mouse(cxt.editor, *event);
+            }
+            return EventResult::Ignored(None);
+        }
         if cxt.editor.tree.is_agent_panel(cxt.editor.tree.focus)
             && !matches!(event.kind, MouseEventKind::Moved)
         {
             return super::agent::handle_mouse(cxt.editor, *event);
+        }
+        if cxt.editor.tree.is_terminal_panel(cxt.editor.tree.focus)
+            && !matches!(event.kind, MouseEventKind::Moved)
+        {
+            return super::terminal::handle_mouse(cxt.editor, *event);
         }
 
         if event.kind != MouseEventKind::Moved {
@@ -1540,8 +1557,15 @@ impl Component for EditorView {
                 cx.editor.status_msg = None;
 
                 let agent_leaf_focused = cx.editor.tree.is_agent_panel(cx.editor.tree.focus);
+                let terminal_leaf_focused =
+                    cx.editor.tree.is_terminal_panel(cx.editor.tree.focus);
                 if cx.editor.agent_panel_focused() {
                     if crate::ui::agent::handle_key(cx.editor, key) {
+                        return EventResult::Consumed(None);
+                    }
+                }
+                if cx.editor.terminal_panel_focused() {
+                    if crate::ui::terminal::handle_key(cx.editor, key) {
                         return EventResult::Consumed(None);
                     }
                 }
@@ -1558,7 +1582,19 @@ impl Component for EditorView {
                     }
                 }
 
-                let mode = if agent_leaf_focused {
+                if terminal_leaf_focused && !cx.editor.terminal_panel_focused() {
+                    if self.handle_terminal_normal_key(&mut cx, key) {
+                        return EventResult::Consumed(None);
+                    }
+
+                    let command_key =
+                        matches!(key, key!(':') | key!(' ')) || !self.keymaps.pending().is_empty();
+                    if !command_key {
+                        return EventResult::Consumed(None);
+                    }
+                }
+
+                let mode = if agent_leaf_focused || terminal_leaf_focused {
                     Mode::Normal
                 } else {
                     cx.editor.mode()
@@ -1636,6 +1672,21 @@ impl Component for EditorView {
                 }
 
                 if cx.editor.tree.is_agent_panel(cx.editor.tree.focus) {
+                    let callback = if callbacks.is_empty() {
+                        None
+                    } else {
+                        let callback: crate::compositor::Callback =
+                            Box::new(move |compositor, cx| {
+                                for callback in callbacks {
+                                    callback(compositor, cx)
+                                }
+                            });
+                        Some(callback)
+                    };
+                    return EventResult::Consumed(callback);
+                }
+
+                if cx.editor.tree.is_terminal_panel(cx.editor.tree.focus) {
                     let callback = if callbacks.is_empty() {
                         None
                     } else {
@@ -1733,6 +1784,11 @@ impl Component for EditorView {
             crate::ui::agent::render(cx.editor, panel.area, surface, is_focused);
         }
 
+        for (panel, is_focused) in cx.editor.tree.terminal_panels() {
+            crate::ui::terminal::render(cx.editor, panel.area, surface, is_focused);
+        }
+        crate::ui::terminal::resize_panels(cx.editor);
+
         if config.auto_info {
             if let Some(mut info) = cx.editor.autoinfo.take() {
                 info.render(area, surface, cx);
@@ -1807,6 +1863,13 @@ impl Component for EditorView {
     fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
         if editor.agent_panel_focused() {
             return crate::ui::agent::cursor(editor, area);
+        }
+        if editor.terminal_panel_focused() {
+            return crate::ui::terminal::cursor(editor, area);
+        }
+
+        if editor.tree.is_terminal_panel(editor.tree.focus) && !editor.terminal_panel_focused() {
+            return (None, CursorKind::Hidden);
         }
 
         match editor.cursor() {

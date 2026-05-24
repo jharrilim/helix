@@ -1,5 +1,7 @@
 mod agent;
+pub(crate) mod terminal;
 pub mod agent_cursor;
+pub mod agent_permission;
 mod completion;
 mod document;
 pub(crate) mod editor;

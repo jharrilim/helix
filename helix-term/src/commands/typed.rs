@@ -120,7 +120,7 @@ fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow
 
     cx.block_try_flush_writes()?;
     if cx.editor.tree.is_agent_panel(cx.editor.tree.focus) {
-        cx.editor.close_agent_panel();
+        crate::commands::agent::close_agent_panel_editor(cx.editor);
         return Ok(());
     }
 
@@ -136,7 +136,7 @@ fn force_quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> 
 
     cx.block_try_flush_writes()?;
     if cx.editor.tree.is_agent_panel(cx.editor.tree.focus) {
-        cx.editor.close_agent_panel();
+        crate::commands::agent::close_agent_panel_editor(cx.editor);
         return Ok(());
     }
 
@@ -974,7 +974,7 @@ fn quit_all_impl(cx: &mut compositor::Context, force: bool) -> anyhow::Result<()
         buffers_remaining_impl(cx.editor)?;
     }
 
-    cx.editor.close_agent_panel();
+    crate::commands::agent::close_agent_panel_editor(cx.editor);
 
     // close all views
     let views: Vec<_> = cx.editor.tree.views().map(|(view, _)| view.id).collect();
@@ -2906,6 +2906,17 @@ const WRITE_NO_FORMAT_FLAG: Flag = Flag {
     ..Flag::DEFAULT
 };
 
+const AGENT_HISTORY_SIGNATURE: Signature = Signature {
+    positionals: (0, Some(0)),
+    flags: &[Flag {
+        name: "cwd",
+        alias: None,
+        doc: "show only sessions for the current working directory",
+        ..Flag::DEFAULT
+    }],
+    ..Signature::DEFAULT
+};
+
 pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "exit",
@@ -4050,6 +4061,14 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         doc: "List and load agent sessions",
         fun: typed_agent_history,
         completer: CommandCompleter::none(),
+        signature: AGENT_HISTORY_SIGNATURE,
+    },
+    TypableCommand {
+        name: "agent-new",
+        aliases: &[],
+        doc: "Start a new agent session",
+        fun: typed_agent_new,
+        completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
     },
     TypableCommand {
@@ -4062,6 +4081,30 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+    },
+    TypableCommand {
+        name: "terminal-open",
+        aliases: &["term-open"],
+        doc: "Open the integrated terminal panel",
+        fun: typed_terminal_open,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "terminal-close",
+        aliases: &["term-close"],
+        doc: "Close the integrated terminal panel",
+        fun: typed_terminal_close,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "terminal-toggle",
+        aliases: &["term-toggle"],
+        doc: "Toggle the integrated terminal panel",
+        fun: typed_terminal_toggle,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
     },
 ];
 
@@ -4584,13 +4627,26 @@ fn typed_agent_stop(
 
 fn typed_agent_history(
     cx: &mut compositor::Context,
-    _args: Args<'_>,
+    args: Args,
     event: PromptEvent,
 ) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
     }
-    crate::commands::agent::agent_history_editor(cx.editor, cx.jobs);
+    let cwd_only = args.has_flag("cwd");
+    crate::commands::agent::agent_history_editor(cx.editor, cx.jobs, cwd_only);
+    Ok(())
+}
+
+fn typed_agent_new(
+    cx: &mut compositor::Context,
+    _args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    crate::commands::agent::agent_new_editor(cx.editor, cx.jobs);
     Ok(())
 }
 
@@ -4603,6 +4659,46 @@ fn typed_agent_mode(
         return Ok(());
     }
     let mode_id = args.first().map(|arg| arg.to_string());
-    crate::commands::agent::agent_mode_editor(cx.editor, mode_id);
+    if let Some(mode_id) = mode_id {
+        crate::commands::agent::agent_mode_editor(cx.editor, Some(mode_id));
+    } else {
+        crate::commands::agent::open_mode_picker_from_jobs(cx.editor, cx.jobs);
+    }
+    Ok(())
+}
+
+fn typed_terminal_open(
+    cx: &mut compositor::Context,
+    _args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    crate::commands::terminal::terminal_open_editor(cx.editor, cx.jobs);
+    Ok(())
+}
+
+fn typed_terminal_close(
+    cx: &mut compositor::Context,
+    _args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    crate::commands::terminal::terminal_close_editor(cx.editor);
+    Ok(())
+}
+
+fn typed_terminal_toggle(
+    cx: &mut compositor::Context,
+    _args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    crate::commands::terminal::terminal_toggle_editor(cx.editor, cx.jobs);
     Ok(())
 }

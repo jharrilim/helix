@@ -6,7 +6,7 @@ use helix_acp::{
     METHOD_ASK_QUESTION, METHOD_CREATE_PLAN,
 };
 use helix_view::{
-    agent::{AgentModeMeta, AgentQuestionOption},
+    agent::{AgentModeMeta, AgentQuestionOption, AgentTranscriptEntry},
     Editor,
 };
 use serde_json::{json, Value};
@@ -15,7 +15,7 @@ use tui::widgets::Row;
 
 use crate::agent;
 use crate::compositor::Compositor;
-use crate::ui::{overlay::overlaid, Picker, PickerColumn, Select};
+use crate::ui::{overlay::overlaid, Markdown, Picker, PickerColumn, Popup, Select};
 use crate::ui::prompt::PromptEvent;
 
 use super::menu::Item;
@@ -218,8 +218,9 @@ fn show_create_plan(
         return;
     };
 
+    let plan_name = request.name.clone();
     let mut body = String::new();
-    if let Some(name) = request.name {
+    if let Some(name) = &plan_name {
         body.push_str(&format!("# {name}\n\n"));
     }
     if let Some(overview) = request.overview {
@@ -233,9 +234,11 @@ fn show_create_plan(
         }
     }
 
-    editor.agent.push_entry(helix_view::agent::AgentTranscriptEntry::Plan {
-        entries: body.lines().map(str::to_string).collect(),
-    });
+    let plan_name_for_accept = plan_name.clone();
+    let markdown = Markdown::new(body, editor.syn_loader.clone());
+    compositor.push(Box::new(overlaid(
+        Popup::new("agent-plan-review", markdown).auto_close(true),
+    )));
 
     let request_id_copy = request_id;
     let select = Select::new(
@@ -268,6 +271,13 @@ fn show_create_plan(
                         json!({ "outcome": { "outcome": "cancelled" } })
                     }),
                 );
+                if matches!(choice.outcome, CursorCreatePlanOutcome::Accepted { .. }) {
+                    let label = plan_name_for_accept
+                        .as_ref()
+                        .map(|name| format!("Plan accepted: {name}"))
+                        .unwrap_or_else(|| "Plan accepted".into());
+                    editor.agent.push_entry(AgentTranscriptEntry::System { text: label });
+                }
                 editor.set_status("agent plan reviewed");
             }
             PromptEvent::Abort => {
@@ -336,6 +346,25 @@ impl CursorTodoStatusLabel for helix_acp::CursorTodo {
             helix_acp::CursorTodoStatus::Cancelled => "cancelled",
         }
     }
+}
+
+pub fn cancel_pending_cursor_requests(editor: &mut Editor) {
+    if let Some(flow) = editor.agent.cursor_question_flow.take() {
+        respond_cursor(
+            flow.request_id,
+            serde_json::to_value(CursorAskQuestionResponse {
+                outcome: CursorAskQuestionOutcome::Cancelled,
+            })
+            .unwrap_or_else(|_| json!({ "outcome": { "outcome": "cancelled" } })),
+        );
+    }
+    if let Some(request) = editor.agent.cursor_request.take() {
+        respond_cursor(
+            request.request_id,
+            json!({ "outcome": { "outcome": "cancelled" } }),
+        );
+    }
+    editor.agent.open_cursor_request = false;
 }
 
 pub fn resume_question_flow(editor: &mut Editor, compositor: &mut Compositor) {

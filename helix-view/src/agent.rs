@@ -61,9 +61,11 @@ pub enum AgentTranscriptEntry {
         text: String,
     },
     ToolCall {
-        name: String,
+        id: String,
+        title: String,
         status: String,
         detail: Option<String>,
+        expanded: bool,
     },
     Plan {
         entries: Vec<String>,
@@ -128,6 +130,12 @@ pub struct AgentSettings {
     pub default_mode: Option<String>,
     /// Optional override path to an MCP config file.
     pub mcp_config_path: Option<PathBuf>,
+    /// Emit verbose ACP debug lines in the agent pane.
+    pub debug_logging: bool,
+    /// Auto-approve permission requests without showing a picker.
+    pub auto_approve_permissions: bool,
+    /// Attach current buffer path and selection to outgoing prompts.
+    pub include_editor_context: bool,
 }
 
 impl Default for AgentSettings {
@@ -140,6 +148,9 @@ impl Default for AgentSettings {
             skip_authenticate: false,
             default_mode: None,
             mcp_config_path: None,
+            debug_logging: false,
+            auto_approve_permissions: false,
+            include_editor_context: true,
         }
     }
 }
@@ -228,14 +239,38 @@ pub struct AgentState {
     pub mode: Option<String>,
     /// Available session modes reported by the agent.
     pub available_modes: Vec<AgentModeMeta>,
-    /// When true, open the mode picker on the next event dispatch.
-    pub open_mode_picker: bool,
     /// Blocking Cursor extension request awaiting UI response.
     pub cursor_request: Option<AgentCursorRequest>,
     /// When true, show the Cursor extension UI on the next event dispatch.
     pub open_cursor_request: bool,
     /// In-progress Cursor ask_question flow.
     pub cursor_question_flow: Option<AgentQuestionFlow>,
+    /// Blocking permission request awaiting UI response.
+    pub pending_permission: Option<AgentPendingPermission>,
+    /// When true, show the permission picker on the next event dispatch.
+    pub open_permission_picker: bool,
+    /// Whether the agent supports ACP session/close.
+    pub close_session: bool,
+    /// When true, filter session history picker to the current working directory.
+    pub history_filter_cwd: bool,
+    /// Index into `transcript` of the focused tool row for keyboard toggle.
+    pub transcript_tool_focus: Option<usize>,
+}
+
+/// Option for an ACP permission request.
+#[derive(Debug, Clone)]
+pub struct AgentPermissionOption {
+    pub id: String,
+    pub label: String,
+}
+
+/// Pending permission request shown in the UI.
+#[derive(Debug, Clone)]
+pub struct AgentPendingPermission {
+    pub request_id: u64,
+    pub title: String,
+    pub message: String,
+    pub options: Vec<AgentPermissionOption>,
 }
 
 impl AgentState {
@@ -279,6 +314,102 @@ impl AgentState {
         self.transcript.clear();
         self.scroll = 0;
         self.transcript_selection = None;
+        self.transcript_tool_focus = None;
+    }
+
+    pub fn upsert_tool_call(
+        &mut self,
+        id: String,
+        title: String,
+        status: String,
+        detail: Option<String>,
+    ) {
+        if let Some(index) = self
+            .transcript
+            .iter()
+            .position(|entry| matches!(entry, AgentTranscriptEntry::ToolCall { id: existing, .. } if existing == &id))
+        {
+            if let AgentTranscriptEntry::ToolCall {
+                title: existing_title,
+                status: existing_status,
+                detail: existing_detail,
+                expanded,
+                ..
+            } = &mut self.transcript[index]
+            {
+                *existing_title = title;
+                let collapsed = tool_status_collapsed(&status);
+                *existing_status = status;
+                if detail.is_some() {
+                    *existing_detail = detail;
+                }
+                if collapsed {
+                    *expanded = false;
+                }
+            }
+            return;
+        }
+
+        let expanded = !tool_status_collapsed(&status);
+        self.push_entry(AgentTranscriptEntry::ToolCall {
+            id,
+            title,
+            status,
+            detail,
+            expanded,
+        });
+    }
+
+    pub fn update_tool_call(
+        &mut self,
+        id: &str,
+        title: Option<String>,
+        status: Option<String>,
+        detail: Option<String>,
+    ) {
+        let Some(index) = self.transcript.iter().position(|entry| {
+            matches!(entry, AgentTranscriptEntry::ToolCall { id: existing, .. } if existing == id)
+        }) else {
+            return;
+        };
+        if let AgentTranscriptEntry::ToolCall {
+            title: existing_title,
+            status: existing_status,
+            detail: existing_detail,
+            expanded,
+            ..
+        } = &mut self.transcript[index]
+        {
+            if let Some(title) = title {
+                *existing_title = title;
+            }
+            if let Some(status) = status {
+                *existing_status = status.clone();
+                if tool_status_collapsed(&status) {
+                    *expanded = false;
+                }
+            }
+            if detail.is_some() {
+                *existing_detail = detail;
+            }
+        }
+    }
+
+    pub fn toggle_tool_call(&mut self, index: usize) {
+        if let Some(AgentTranscriptEntry::ToolCall { expanded, .. }) =
+            self.transcript.get_mut(index)
+        {
+            *expanded = !*expanded;
+        }
+    }
+
+    pub fn tool_call_indices(&self) -> impl Iterator<Item = usize> + '_ {
+        self.transcript
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| {
+                matches!(entry, AgentTranscriptEntry::ToolCall { .. }).then_some(index)
+            })
     }
 
     pub fn clear_transcript_selection(&mut self) {
@@ -301,4 +432,8 @@ impl AgentState {
         self.debug_log.clear();
         self.load_replay_count = 0;
     }
+}
+
+fn tool_status_collapsed(status: &str) -> bool {
+    matches!(status, "completed" | "failed")
 }

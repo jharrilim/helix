@@ -318,3 +318,161 @@ async fn agent_transcript_renders_cursor_plan_notification() -> anyhow::Result<(
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_permission_request_opens_picker() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+
+    open_agent_panel(&mut app);
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::PermissionRequested {
+            request_id: 1,
+            title: "Run shell command".into(),
+            message: "agent wants to run `cargo test`".into(),
+            options: vec![helix_acp::AgentPermissionOption {
+                id: "allow-once".into(),
+                label: "Allow once".into(),
+            }],
+        },
+    );
+
+    assert!(
+        app.editor.agent.pending_permission.is_some(),
+        "expected pending permission state"
+    );
+    assert!(
+        app.editor.agent.open_permission_picker,
+        "expected permission picker flag"
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_debug_event_stores_line_without_transcript_entry() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+
+    open_agent_panel(&mut app);
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::Debug {
+            text: "acp[session/update]: AgentMessageChunk text_len=4".into(),
+        },
+    );
+
+    assert_eq!(app.editor.agent.debug_log.len(), 1);
+    assert!(
+        app.editor
+            .agent
+            .debug_log
+            .back()
+            .unwrap()
+            .contains("AgentMessageChunk"),
+        "debug line should be stored"
+    );
+    assert!(
+        app.editor.agent.transcript.is_empty(),
+        "debug events should not append transcript entries"
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_tool_call_updates_merge_by_id() -> anyhow::Result<()> {
+    use helix_view::agent::AgentTranscriptEntry;
+
+    let mut app = AppBuilder::new().build()?;
+
+    open_agent_panel(&mut app);
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::Message(AgentMessage::ToolCall {
+            id: "call-1".into(),
+            title: "Read file".into(),
+            status: "in_progress".into(),
+            detail: None,
+        }),
+    );
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::ToolCallUpdated {
+            id: "call-1".into(),
+            title: None,
+            status: Some("completed".into()),
+            detail: Some("done".into()),
+        },
+    );
+
+    assert_eq!(app.editor.agent.transcript.len(), 1);
+    let AgentTranscriptEntry::ToolCall {
+        title,
+        status,
+        detail,
+        expanded,
+        ..
+    } = &app.editor.agent.transcript[0]
+    else {
+        panic!("expected single tool call entry");
+    };
+    assert_eq!(title, "Read file");
+    assert_eq!(status, "completed");
+    assert_eq!(detail.as_deref(), Some("done"));
+    assert!(!expanded);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_session_closed_clears_active_session() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+
+    open_agent_panel(&mut app);
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::SessionStarted {
+            session_id: session_id("session-close"),
+        },
+    );
+    apply_test_agent_event(&mut app.editor, AgentEvent::SessionClosed);
+
+    assert!(app.editor.agent.active_session.is_none());
+    assert!(app.editor.agent.mode.is_none());
+
+    Ok(())
+}
+
+#[test]
+fn sort_agent_sessions_prefers_cwd_and_updated_at() {
+    use helix_view::agent::AgentSessionMeta;
+    use std::path::PathBuf;
+
+    let cwd = PathBuf::from("/tmp/project");
+    let mut sessions = vec![
+        AgentSessionMeta {
+            id: "old-other".into(),
+            title: Some("Old other".into()),
+            cwd: PathBuf::from("/elsewhere"),
+            updated_at: Some("2026-01-01T00:00:00Z".into()),
+        },
+        AgentSessionMeta {
+            id: "new-local".into(),
+            title: Some("New local".into()),
+            cwd: cwd.clone(),
+            updated_at: Some("2026-01-03T00:00:00Z".into()),
+        },
+        AgentSessionMeta {
+            id: "old-local".into(),
+            title: Some("Old local".into()),
+            cwd: cwd.clone(),
+            updated_at: Some("2026-01-02T00:00:00Z".into()),
+        },
+    ];
+
+    helix_term::commands::sort_agent_sessions(&mut sessions, Some(&cwd));
+
+    assert_eq!(sessions[0].id, "new-local");
+    assert_eq!(sessions[1].id, "old-local");
+    assert_eq!(sessions[2].id, "old-other");
+}

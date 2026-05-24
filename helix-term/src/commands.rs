@@ -1,7 +1,9 @@
 pub(crate) mod agent;
+pub(crate) mod terminal;
 pub(crate) mod dap;
 pub(crate) mod fold;
 pub use agent::*;
+pub use terminal::*;
 pub(crate) mod lsp;
 pub(crate) mod syntax;
 pub(crate) mod typed;
@@ -548,7 +550,12 @@ impl MappableCommand {
         agent_stop, "Stop agent session",
         agent_clear, "Clear agent transcript",
         agent_history, "List and load agent sessions",
+        agent_new, "Start a new agent session",
         agent_mode, "Set or pick agent session mode",
+        terminal_open, "Open integrated terminal",
+        terminal_close, "Close integrated terminal",
+        terminal_toggle, "Toggle integrated terminal",
+        terminal_insert_mode, "Enter terminal insert mode",
         jump_forward, "Jump forward on jumplist",
         jump_backward, "Jump backward on jumplist",
         save_selection, "Save current selection to jumplist",
@@ -5941,7 +5948,7 @@ fn vsplit_new(cx: &mut Context) {
 
 fn wclose(cx: &mut Context) {
     if cx.editor.tree.is_agent_panel(cx.editor.tree.focus) {
-        cx.editor.close_agent_panel();
+        crate::commands::agent::close_agent_panel_editor(cx.editor);
         return;
     }
 

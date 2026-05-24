@@ -297,10 +297,16 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "A" => agent_focus,
                 "c" => agent_close,
                 "h" => agent_history,
+                "n" => agent_new,
                 "s" => agent_send,
                 "S" => agent_stop,
                 "C" => agent_clear,
                 "m" => agent_mode,
+            },
+            "t" => { "Terminal"
+                "o" => terminal_open,
+                "c" => terminal_close,
+                "i" => terminal_insert_mode,
             },
         },
         "z" => { "View"

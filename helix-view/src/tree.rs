@@ -8,6 +8,14 @@ pub struct AgentPanel {
     pub area: Rect,
 }
 
+/// Integrated terminal panel leaf in the split tree.
+#[derive(Debug)]
+pub struct TerminalPanel {
+    pub id: ViewId,
+    pub area: Rect,
+    pub session_id: String,
+}
+
 // the dimensions are recomputed on window resize/tree change.
 //
 #[derive(Debug)]
@@ -34,6 +42,7 @@ pub struct Node {
 pub enum Content {
     View(Box<View>),
     AgentPanel(AgentPanel),
+    TerminalPanel(TerminalPanel),
     Container(Box<Container>),
 }
 
@@ -56,6 +65,13 @@ impl Node {
         Self {
             parent: ViewId::default(),
             content: Content::AgentPanel(panel),
+        }
+    }
+
+    pub fn terminal_panel(panel: TerminalPanel) -> Self {
+        Self {
+            parent: ViewId::default(),
+            content: Content::TerminalPanel(panel),
         }
     }
 }
@@ -305,6 +321,83 @@ impl Tree {
         node
     }
 
+    pub fn split_terminal_panel(&mut self, layout: Layout, session_id: String) -> ViewId {
+        let focus = self.focus;
+        let parent = self.nodes[focus].parent;
+
+        let node = Node::terminal_panel(TerminalPanel {
+            id: ViewId::default(),
+            area: Rect::default(),
+            session_id,
+        });
+        let node = self.nodes.insert(node);
+        if let Node {
+            content: Content::TerminalPanel(panel),
+            ..
+        } = &mut self.nodes[node]
+        {
+            panel.id = node;
+        }
+
+        let container = match &mut self.nodes[parent] {
+            Node {
+                content: Content::Container(container),
+                ..
+            } => container,
+            _ => unreachable!(),
+        };
+        if container.layout == layout {
+            let pos = if container.children.is_empty() {
+                0
+            } else {
+                container
+                    .children
+                    .iter()
+                    .position(|&child| child == focus)
+                    .unwrap()
+                    + 1
+            };
+            container.children.insert(pos, node);
+            self.nodes[node].parent = parent;
+        } else {
+            let mut split = Node::container(layout);
+            split.parent = parent;
+            let split = self.nodes.insert(split);
+
+            let container = match &mut self.nodes[split] {
+                Node {
+                    content: Content::Container(container),
+                    ..
+                } => container,
+                _ => unreachable!(),
+            };
+            container.children.push(focus);
+            container.children.push(node);
+            self.nodes[focus].parent = split;
+            self.nodes[node].parent = split;
+
+            let container = match &mut self.nodes[parent] {
+                Node {
+                    content: Content::Container(container),
+                    ..
+                } => container,
+                _ => unreachable!(),
+            };
+
+            let pos = container
+                .children
+                .iter()
+                .position(|&child| child == focus)
+                .unwrap();
+
+            container.children[pos] = split;
+        }
+
+        self.focus = node;
+        self.recalculate();
+        node
+    }
+
     /// Get a mutable reference to a [Container] by index.
     /// # Panics
     /// Panics if `index` is not in self.nodes, or if the node's content is not a [Content::Container].
@@ -425,6 +518,47 @@ impl Tree {
         })
     }
 
+    pub fn is_terminal_panel(&self, index: ViewId) -> bool {
+        matches!(
+            self.nodes.get(index),
+            Some(Node {
+                content: Content::TerminalPanel(_),
+                ..
+            })
+        )
+    }
+
+    pub fn terminal_panel(&self, index: ViewId) -> Option<&TerminalPanel> {
+        match self.nodes.get(index) {
+            Some(Node {
+                content: Content::TerminalPanel(panel),
+                ..
+            }) => Some(panel),
+            _ => None,
+        }
+    }
+
+    pub fn terminal_panel_mut(&mut self, index: ViewId) -> Option<&mut TerminalPanel> {
+        match self.nodes.get_mut(index) {
+            Some(Node {
+                content: Content::TerminalPanel(panel),
+                ..
+            }) => Some(panel),
+            _ => None,
+        }
+    }
+
+    pub fn terminal_panels(&self) -> impl Iterator<Item = (&TerminalPanel, bool)> {
+        let focus = self.focus;
+        self.nodes.iter().filter_map(move |(key, node)| match node {
+            Node {
+                content: Content::TerminalPanel(panel),
+                ..
+            } => Some((panel, focus == key)),
+            _ => None,
+        })
+    }
+
     /// Get reference to a [View] by index.
     /// # Panics
     ///
@@ -507,6 +641,9 @@ impl Tree {
                     view.area = area;
                 }
                 Content::AgentPanel(panel) => {
+                    panel.area = area;
+                }
+                Content::TerminalPanel(panel) => {
                     panel.area = area;
                 }
                 Content::Container(container) => {
@@ -593,7 +730,7 @@ impl Tree {
         // Parent must always be a container
         let parent_container = match &self.nodes[parent].content {
             Content::Container(container) => container,
-            Content::View(_) | Content::AgentPanel(_) => unreachable!(),
+            Content::View(_) | Content::AgentPanel(_) | Content::TerminalPanel(_) => unreachable!(),
         };
 
         match (direction, parent_container.layout) {
@@ -650,6 +787,7 @@ impl Tree {
         let (current_x, current_y) = match &self.nodes[self.focus].content {
             Content::View(current_view) => (current_view.area.left(), current_view.area.top()),
             Content::AgentPanel(panel) => (panel.area.left(), panel.area.top()),
+            Content::TerminalPanel(panel) => (panel.area.left(), panel.area.top()),
             Content::Container(_) => unreachable!(),
         };
 
@@ -664,6 +802,7 @@ impl Tree {
                         let x = match &self.nodes[**id].content {
                             Content::View(view) => view.area.left(),
                             Content::AgentPanel(panel) => panel.area.left(),
+                            Content::TerminalPanel(panel) => panel.area.left(),
                             Content::Container(container) => container.area.left(),
                         };
                         (current_x as i16 - x as i16).abs()
@@ -676,6 +815,7 @@ impl Tree {
                         let y = match &self.nodes[**id].content {
                             Content::View(view) => view.area.top(),
                             Content::AgentPanel(panel) => panel.area.top(),
+                            Content::TerminalPanel(panel) => panel.area.top(),
                             Content::Container(container) => container.area.top(),
                         };
                         (current_y as i16 - y as i16).abs()
@@ -819,7 +959,7 @@ impl<'a> Iterator for Traverse<'a> {
 
             match &node.content {
                 Content::View(view) => return Some((key, view)),
-                Content::AgentPanel(_) => continue,
+                Content::AgentPanel(_) | Content::TerminalPanel(_) => continue,
                 Content::Container(container) => {
                     self.stack.extend(container.children.iter().rev());
                 }
@@ -837,7 +977,7 @@ impl DoubleEndedIterator for Traverse<'_> {
 
             match &node.content {
                 Content::View(view) => return Some((key, view)),
-                Content::AgentPanel(_) => continue,
+                Content::AgentPanel(_) | Content::TerminalPanel(_) => continue,
                 Content::Container(container) => {
                     self.stack.extend(container.children.iter());
                 }
@@ -868,7 +1008,9 @@ impl<'a> Iterator for LeafTraverse<'a> {
             let key = self.stack.pop()?;
             let node = &self.tree.nodes[key];
             match &node.content {
-                Content::View(_) | Content::AgentPanel(_) => return Some((key, ())),
+                Content::View(_) | Content::AgentPanel(_) | Content::TerminalPanel(_) => {
+                    return Some((key, ()))
+                }
                 Content::Container(container) => {
                     self.stack.extend(container.children.iter().rev());
                 }
@@ -883,7 +1025,9 @@ impl DoubleEndedIterator for LeafTraverse<'_> {
             let key = self.stack.pop()?;
             let node = &self.tree.nodes[key];
             match &node.content {
-                Content::View(_) | Content::AgentPanel(_) => return Some((key, ())),
+                Content::View(_) | Content::AgentPanel(_) | Content::TerminalPanel(_) => {
+                    return Some((key, ()))
+                }
                 Content::Container(container) => {
                     self.stack.extend(container.children.iter());
                 }
@@ -1134,5 +1278,25 @@ mod test {
                 .map(|(view, _)| view.area.width)
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn split_terminal_panel_assigns_area() {
+        let mut tree = Tree::new(Rect {
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 40,
+        });
+        let mut view = View::new(DocumentId::default(), GutterConfig::default());
+        view.area = Rect::new(0, 0, 120, 40);
+        tree.insert(view);
+
+        let panel_id = tree.split_terminal_panel(Layout::Vertical, "session-1".into());
+        assert!(tree.is_terminal_panel(panel_id));
+        let panel = tree.terminal_panel(panel_id).unwrap();
+        assert_eq!(panel.session_id, "session-1");
+        assert!(panel.area.width > 0);
+        assert!(panel.area.height > 0);
     }
 }

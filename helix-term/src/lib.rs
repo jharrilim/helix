@@ -13,6 +13,7 @@ pub mod keymap;
 pub mod ui;
 
 mod agent;
+mod terminal;
 
 #[cfg(not(windows))]
 use std::env::var_os;

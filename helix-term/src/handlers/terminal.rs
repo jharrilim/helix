@@ -1,0 +1,146 @@
+//! Integrated terminal runtime integration.
+
+use std::collections::HashMap;
+
+use helix_pty::{
+    SessionHandle, TerminalCommand, TerminalEvent, TerminalRuntime, TerminalRuntimeHandle,
+    TerminalScroll,
+};
+use helix_view::{Editor};
+use tokio::sync::mpsc::UnboundedReceiver;
+
+use crate::job;
+
+pub struct TerminalController {
+    runtime: Option<TerminalRuntimeHandle>,
+    events_rx: Option<UnboundedReceiver<TerminalEvent>>,
+    sessions: HashMap<String, SessionHandle>,
+}
+
+impl Default for TerminalController {
+    fn default() -> Self {
+        Self {
+            runtime: None,
+            events_rx: None,
+            sessions: HashMap::new(),
+        }
+    }
+}
+
+impl TerminalController {
+    pub fn is_running(&self) -> bool {
+        self.runtime.is_some()
+    }
+
+    pub fn start(&mut self, editor: &Editor) -> anyhow::Result<()> {
+        let config = crate::terminal::runtime_config(editor);
+        let (handle, events_rx) = TerminalRuntime::spawn(config);
+        self.runtime = Some(handle);
+        self.events_rx = Some(events_rx);
+        Ok(())
+    }
+
+    pub fn send(&self, cmd: TerminalCommand) {
+        if let Some(handle) = &self.runtime {
+            handle.send(cmd);
+        }
+    }
+
+    pub fn session_handle(&self, id: &str) -> Option<&SessionHandle> {
+        self.sessions.get(id)
+    }
+
+    pub fn remove_session(&mut self, id: &str) {
+        self.sessions.remove(id);
+    }
+
+    pub fn register_live_session(&mut self, id: impl Into<String>, handle: SessionHandle) {
+        self.sessions.insert(id.into(), handle);
+    }
+
+    pub fn shutdown(&mut self) {
+        for id in self.sessions.keys().cloned().collect::<Vec<_>>() {
+            self.send(TerminalCommand::Kill { id: id.into() });
+        }
+        self.sessions.clear();
+        self.runtime = None;
+        self.events_rx = None;
+    }
+
+    pub fn spawn_event_listener(&mut self, jobs: &mut crate::job::Jobs) {
+        let Some(mut rx) = self.events_rx.take() else {
+            return;
+        };
+
+        jobs.spawn(async move {
+            while let Some(event) = rx.recv().await {
+                job::dispatch(move |editor, _compositor| {
+                    apply_event(editor, &event);
+                })
+                .await;
+            }
+            Ok(())
+        });
+    }
+}
+
+fn apply_event(editor: &mut Editor, event: &TerminalEvent) {
+    match event {
+        TerminalEvent::Spawned { id, handle } => {
+            with_controller_store(editor, &id.0, handle.clone());
+        }
+        TerminalEvent::Updated { id } => {
+            let scroll_pinned = editor
+                .terminal
+                .session_mut(&id.0)
+                .map(|session| session.scroll_pinned)
+                .unwrap_or(true);
+
+            if scroll_pinned {
+                if let Some(handle) = session_handle_for(&id.0) {
+                    handle.scroll(TerminalScroll::Bottom);
+                }
+                if let Some(session) = editor.terminal.session_mut(&id.0) {
+                    session.scroll_offset = 0;
+                }
+            } else if let Some(handle) = session_handle_for(&id.0) {
+                if let Some(session) = editor.terminal.session_mut(&id.0) {
+                    session.scroll_offset = handle.display_offset();
+                }
+            }
+
+            helix_event::request_redraw();
+        }
+        TerminalEvent::TitleChanged { id, title } => {
+            if let Some(session) = editor.terminal.session_mut(&id.0) {
+                session.title = Some(title.clone());
+            }
+            helix_event::request_redraw();
+        }
+        TerminalEvent::Exited { id, code, signal: _ } => {
+            if let Some(session) = editor.terminal.session_mut(&id.0) {
+                session.exit_status = *code;
+            }
+
+            let auto_close = editor.integrated_terminal_settings().auto_close_on_exit;
+            if auto_close {
+                crate::commands::terminal::close_terminal_session(editor, &id.0);
+            }
+
+            helix_event::request_redraw();
+        }
+        TerminalEvent::Error { text } => {
+            editor.set_error(text.clone());
+        }
+    }
+}
+
+fn with_controller_store(_editor: &mut Editor, id: &str, handle: SessionHandle) {
+    crate::terminal::with_controller(|controller| {
+        controller.register_live_session(id, handle);
+    });
+}
+
+fn session_handle_for(id: &str) -> Option<SessionHandle> {
+    crate::terminal::session_handle(id)
+}

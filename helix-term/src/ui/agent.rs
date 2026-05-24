@@ -25,6 +25,7 @@ struct TranscriptLine {
     text: String,
     spans: Vec<TranscriptSpan>,
     kind: TranscriptLineKind,
+    entry_index: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -37,7 +38,8 @@ struct TranscriptSpan {
 enum TranscriptLineKind {
     Role,
     Body { thought: bool, error: bool },
-    Tool,
+    ToolHeader,
+    ToolBody,
     Plan,
     Debug,
     Blank,
@@ -140,10 +142,22 @@ pub fn handle_mouse(editor: &mut Editor, event: MouseEvent) -> EventResult {
         MouseEventKind::Up(MouseButton::Left) => {
             let config = editor.config();
             let mut yanked = false;
+            let mut toggled_tool = false;
             if let Some(sel) = editor.agent.transcript_selection.as_mut() {
                 sel.dragging = false;
                 let text = selection_text(&layout.lines, sel);
-                if !text.is_empty() {
+                if text.is_empty() {
+                    let (start, _) = sel.normalized();
+                    if let Some(line) = layout.lines.get(start.line) {
+                        if matches!(line.kind, TranscriptLineKind::ToolHeader) {
+                            if let Some(index) = line.entry_index {
+                                editor.agent.toggle_tool_call(index);
+                                editor.agent.transcript_tool_focus = Some(index);
+                                toggled_tool = true;
+                            }
+                        }
+                    }
+                } else if !text.is_empty() {
                     let mouse_register = config.mouse_yank_register;
                     let clipboard_register = '+';
                     let mouse_result = editor.registers.write(mouse_register, vec![text.clone()]);
@@ -168,7 +182,7 @@ pub fn handle_mouse(editor: &mut Editor, event: MouseEvent) -> EventResult {
                     yanked = true;
                 }
             }
-            if yanked {
+            if toggled_tool || yanked {
                 helix_event::request_redraw();
             }
             EventResult::Consumed(None)
@@ -202,10 +216,10 @@ fn build_transcript_layout(
 
     append_debug_lines(width, editor, &mut lines);
 
-    let entries: Vec<_> = editor.agent.transcript.iter().rev().skip(skip).collect();
+    let entries: Vec<_> = editor.agent.transcript.iter().enumerate().rev().skip(skip).collect();
 
-    for entry in entries.into_iter().rev() {
-        append_entry_lines(editor, entry, width, &mut lines);
+    for (index, entry) in entries.into_iter().rev() {
+        append_entry_lines(editor, index, entry, width, &mut lines);
     }
 
     if editor.agent.transcript.is_empty() && editor.agent.debug_log.is_empty() {
@@ -216,6 +230,7 @@ fn build_transcript_layout(
                 thought: true,
                 error: false,
             },
+            entry_index: None,
         });
     }
 
@@ -515,6 +530,7 @@ fn append_debug_lines(width: usize, editor: &Editor, lines: &mut Vec<TranscriptL
         text: "— agent debug —".into(),
         spans: Vec::new(),
         kind: TranscriptLineKind::Debug,
+        entry_index: None,
     });
     for entry in &editor.agent.debug_log {
         for wrapped in wrap_text(entry, width) {
@@ -522,6 +538,7 @@ fn append_debug_lines(width: usize, editor: &Editor, lines: &mut Vec<TranscriptL
                 text: wrapped,
                 spans: Vec::new(),
                 kind: TranscriptLineKind::Debug,
+                entry_index: None,
             });
         }
     }
@@ -536,9 +553,10 @@ fn line_style(
     thought_style: Style,
 ) -> Style {
     match kind {
-        TranscriptLineKind::Role | TranscriptLineKind::Tool | TranscriptLineKind::Plan => {
-            role_style
-        }
+        TranscriptLineKind::Role
+        | TranscriptLineKind::ToolHeader
+        | TranscriptLineKind::ToolBody
+        | TranscriptLineKind::Plan => role_style,
         TranscriptLineKind::Debug => thought_style.add_modifier(Modifier::ITALIC),
         TranscriptLineKind::Body { thought: true, .. } => thought_style,
         TranscriptLineKind::Body { error: true, .. } => error_style,
@@ -650,6 +668,7 @@ fn selection_chars_for_line(
 
 fn append_entry_lines(
     editor: &Editor,
+    entry_index: usize,
     entry: &AgentTranscriptEntry,
     width: usize,
     lines: &mut Vec<TranscriptLine>,
@@ -663,6 +682,7 @@ fn append_entry_lines(
                 text: format!("{}: ", entry.role_label()),
                 spans: Vec::new(),
                 kind: TranscriptLineKind::Role,
+                entry_index: None,
             });
             append_markdown_lines(
                 editor,
@@ -677,21 +697,31 @@ fn append_entry_lines(
             lines.push(blank_line());
         }
         AgentTranscriptEntry::ToolCall {
-            name,
+            title,
             status,
             detail,
+            expanded,
+            ..
         } => {
-            let detail = detail.as_deref().unwrap_or("");
-            let body = if detail.is_empty() {
-                format!("{name} ({status})")
-            } else {
-                format!("{name} ({status}): {detail}")
-            };
+            let marker = if *expanded { "▾" } else { "▸" };
             lines.push(TranscriptLine {
-                text: format!("tool {body}"),
+                text: format!("{marker} tool: {title} [{status}]"),
                 spans: Vec::new(),
-                kind: TranscriptLineKind::Tool,
+                kind: TranscriptLineKind::ToolHeader,
+                entry_index: Some(entry_index),
             });
+            if *expanded {
+                if let Some(detail) = detail.as_deref().filter(|text| !text.is_empty()) {
+                    for wrapped in wrap_text(detail, width.saturating_sub(2)) {
+                        lines.push(TranscriptLine {
+                            text: format!("  {wrapped}"),
+                            spans: Vec::new(),
+                            kind: TranscriptLineKind::ToolBody,
+                            entry_index: Some(entry_index),
+                        });
+                    }
+                }
+            }
             lines.push(blank_line());
         }
         AgentTranscriptEntry::Plan { entries } => {
@@ -699,6 +729,7 @@ fn append_entry_lines(
                 text: "plan".into(),
                 spans: Vec::new(),
                 kind: TranscriptLineKind::Plan,
+                entry_index: None,
             });
             for item in entries {
                 for wrapped in wrap_text(item, width.saturating_sub(2)) {
@@ -706,6 +737,7 @@ fn append_entry_lines(
                         text: format!("  {wrapped}"),
                         spans: Vec::new(),
                         kind: TranscriptLineKind::Plan,
+                        entry_index: None,
                     });
                 }
             }
@@ -716,6 +748,7 @@ fn append_entry_lines(
                 text: "system: ".into(),
                 spans: Vec::new(),
                 kind: TranscriptLineKind::Role,
+                entry_index: None,
             });
             append_markdown_lines(
                 editor,
@@ -734,6 +767,7 @@ fn append_entry_lines(
                 text: "error: ".into(),
                 spans: Vec::new(),
                 kind: TranscriptLineKind::Role,
+                entry_index: None,
             });
             for wrapped in wrap_text(text, width) {
                 lines.push(TranscriptLine {
@@ -743,6 +777,7 @@ fn append_entry_lines(
                         thought: false,
                         error: true,
                     },
+                    entry_index: None,
                 });
             }
             lines.push(blank_line());
@@ -755,6 +790,7 @@ fn blank_line() -> TranscriptLine {
         text: String::new(),
         spans: Vec::new(),
         kind: TranscriptLineKind::Blank,
+        entry_index: None,
     }
 }
 
@@ -772,6 +808,7 @@ fn append_markdown_lines(
             text: String::new(),
             spans: Vec::new(),
             kind,
+            entry_index: None,
         });
         return;
     }
@@ -803,6 +840,7 @@ fn append_wrapped_spans(
                 })
                 .collect(),
             kind,
+            entry_index: None,
         });
         return;
     }
@@ -845,7 +883,12 @@ fn push_styled_line(
 ) {
     let spans = std::mem::take(spans);
     let text = spans.iter().map(|span| span.text.as_str()).collect();
-    lines.push(TranscriptLine { text, spans, kind });
+    lines.push(TranscriptLine {
+        text,
+        spans,
+        kind,
+        entry_index: None,
+    });
 }
 
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
@@ -1046,6 +1089,7 @@ pub fn handle_normal_key(editor: &mut Editor, key: KeyEvent) -> bool {
             helix_event::request_redraw();
             true
         }
+        KeyCode::Char('z') => toggle_focused_tool(editor),
         KeyCode::Enter => {
             editor.agent.focus = AgentFocus::Insert;
             editor.mode = helix_view::document::Mode::Insert;
@@ -1062,6 +1106,20 @@ pub fn handle_normal_key(editor: &mut Editor, key: KeyEvent) -> bool {
         }
         _ => false,
     }
+}
+
+fn toggle_focused_tool(editor: &mut Editor) -> bool {
+    let index = editor
+        .agent
+        .transcript_tool_focus
+        .or_else(|| editor.agent.tool_call_indices().last());
+    let Some(index) = index else {
+        return false;
+    };
+    editor.agent.toggle_tool_call(index);
+    editor.agent.transcript_tool_focus = Some(index);
+    helix_event::request_redraw();
+    true
 }
 
 fn prev_grapheme_boundary(text: &str, index: usize) -> usize {

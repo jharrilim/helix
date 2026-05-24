@@ -437,6 +437,9 @@ pub struct Config {
     /// ACP agent integration settings.
     #[serde(default)]
     pub agent: crate::agent::AgentSettings,
+    /// Integrated terminal settings.
+    #[serde(default)]
+    pub integrated_terminal: crate::terminal::TerminalSettings,
 }
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Clone, Copy)]
@@ -1161,6 +1164,7 @@ impl Default for Config {
             buffer_picker: BufferPickerConfig::default(),
             insecure: false,
             agent: crate::agent::AgentSettings::default(),
+            integrated_terminal: crate::terminal::TerminalSettings::default(),
         }
     }
 }
@@ -1264,6 +1268,7 @@ pub struct Editor {
     pub mouse_down_range: Option<Range>,
     pub cursor_cache: CursorCache,
     pub agent: crate::agent::AgentState,
+    pub terminal: crate::terminal::TerminalState,
 }
 
 pub type Motion = Box<dyn Fn(&mut Editor)>;
@@ -1387,6 +1392,7 @@ impl Editor {
             mouse_down_range: None,
             cursor_cache: CursorCache::default(),
             agent: crate::agent::AgentState::new(),
+            terminal: crate::terminal::TerminalState::new(),
             dir_stack: VecDeque::with_capacity(DIR_STACK_CAP),
         }
     }
@@ -2119,9 +2125,23 @@ impl Editor {
             return;
         }
 
+        if self.tree.is_terminal_panel(view_id) {
+            if !self.tree.is_terminal_panel(self.tree.focus) {
+                self.enter_normal_mode();
+                let (view, doc) = current!(self);
+                doc.append_changes_to_history(view);
+            }
+            self.tree.focus = view_id;
+            self.terminal.focus = crate::terminal::TerminalFocus::Normal;
+            if let Some(panel) = self.tree.terminal_panel(view_id) {
+                self.terminal.active_session = Some(panel.session_id.clone());
+            }
+            return;
+        }
+
         // Reset mode to normal and ensure any pending changes are committed in the old document.
         self.enter_normal_mode();
-        if !self.tree.is_agent_panel(self.tree.focus) {
+        if !self.tree.is_agent_panel(self.tree.focus) && !self.tree.is_terminal_panel(self.tree.focus) {
             let (view, doc) = current!(self);
             doc.append_changes_to_history(view);
         }
@@ -2266,7 +2286,8 @@ impl Editor {
     /// Gets the primary cursor position in screen coordinates,
     /// or `None` if the primary cursor is not visible on screen.
     pub fn cursor(&self) -> (Option<Position>, CursorKind) {
-        if self.tree.is_agent_panel(self.tree.focus) {
+        if self.tree.is_agent_panel(self.tree.focus) || self.tree.is_terminal_panel(self.tree.focus)
+        {
             return (None, CursorKind::Hidden);
         }
 
@@ -2382,7 +2403,8 @@ impl Editor {
 
         self.mode = Mode::Normal;
 
-        if self.tree.is_agent_panel(self.tree.focus) {
+        if self.tree.is_agent_panel(self.tree.focus) || self.tree.is_terminal_panel(self.tree.focus)
+        {
             return;
         }
 
@@ -2486,6 +2508,26 @@ impl Editor {
         self.config.load().agent.clone()
     }
 
+    pub fn integrated_terminal_settings(&self) -> crate::terminal::TerminalSettings {
+        self.config.load().integrated_terminal.clone()
+    }
+
+    fn open_terminal_panel_id(&self) -> Option<ViewId> {
+        self.terminal
+            .sessions
+            .values()
+            .find_map(|session| session.panel_id)
+    }
+
+    /// Agent and terminal stack in one column; either splits beside the editor alone.
+    fn auxiliary_split_layout(&self, pair_with_other_auxiliary: bool) -> crate::tree::Layout {
+        if pair_with_other_auxiliary {
+            crate::tree::Layout::Horizontal
+        } else {
+            crate::tree::Layout::Vertical
+        }
+    }
+
     pub fn open_agent_panel(&mut self) {
         if let Some(panel_id) = self.agent.panel_id {
             if !self.tree.is_agent_panel(self.tree.focus) {
@@ -2498,7 +2540,13 @@ impl Editor {
             return;
         }
 
-        let panel_id = self.tree.split_agent_panel(crate::tree::Layout::Vertical);
+        let terminal_open = self.open_terminal_panel_id().is_some();
+        let layout = self.auxiliary_split_layout(terminal_open);
+        if let Some(terminal_panel) = self.open_terminal_panel_id() {
+            self.tree.focus = terminal_panel;
+        }
+
+        let panel_id = self.tree.split_agent_panel(layout);
         self.agent.panel_id = Some(panel_id);
         self.agent.focus = crate::agent::AgentFocus::Normal;
         self.tree.focus = panel_id;
@@ -2541,6 +2589,106 @@ impl Editor {
     pub fn agent_panel_focused(&self) -> bool {
         self.agent.panel_id.is_some_and(|id| {
             self.tree.focus == id && self.agent.focus == crate::agent::AgentFocus::Insert
+        })
+    }
+
+    pub fn open_terminal_panel(&mut self, session_id: String) {
+        if let Some(session) = self.terminal.sessions.get(&session_id) {
+            if let Some(panel_id) = session.panel_id {
+                if !self.tree.is_terminal_panel(self.tree.focus) {
+                    self.enter_normal_mode();
+                    let (view, doc) = current!(self);
+                    doc.append_changes_to_history(view);
+                }
+                self.tree.focus = panel_id;
+                self.terminal.focus = crate::terminal::TerminalFocus::Normal;
+                self.terminal.active_session = Some(session_id);
+                return;
+            }
+        }
+
+        let cwd = self
+            .last_cwd
+            .clone()
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."));
+        if self.terminal.sessions.get(&session_id).is_none() {
+            self.terminal.register_session(session_id.clone(), cwd);
+        }
+
+        let agent_open = self.agent.panel_id.is_some();
+        let layout = self.auxiliary_split_layout(agent_open);
+        if let Some(agent_panel) = self.agent.panel_id {
+            self.tree.focus = agent_panel;
+        }
+
+        let panel_id = self.tree.split_terminal_panel(layout, session_id.clone());
+        if let Some(session) = self.terminal.session_mut(&session_id) {
+            session.panel_id = Some(panel_id);
+        }
+        self.terminal.active_session = Some(session_id);
+        self.terminal.focus = crate::terminal::TerminalFocus::Normal;
+        self.tree.focus = panel_id;
+        self._refresh();
+    }
+
+    pub fn close_terminal_panel(&mut self, session_id: &str) {
+        let Some(panel_id) = self
+            .terminal
+            .session_mut(session_id)
+            .and_then(|session| session.panel_id.take())
+        else {
+            return;
+        };
+
+        if self.tree.focus == panel_id {
+            self.tree.focus = self.tree.prev();
+        }
+        if self.tree.contains(panel_id) {
+            self.tree.remove(panel_id);
+        }
+        self.terminal.focus = crate::terminal::TerminalFocus::Normal;
+        self._refresh();
+    }
+
+    pub fn focus_terminal_panel(&mut self) {
+        let panel_id = self
+            .terminal
+            .active_session
+            .as_ref()
+            .and_then(|id| self.terminal.sessions.get(id))
+            .and_then(|session| session.panel_id);
+
+        let Some(panel_id) = panel_id else {
+            return;
+        };
+
+        if !self.tree.is_terminal_panel(self.tree.focus) {
+            self.enter_normal_mode();
+            let (view, doc) = current!(self);
+            doc.append_changes_to_history(view);
+        }
+        self.tree.focus = panel_id;
+        self.terminal.focus = crate::terminal::TerminalFocus::Normal;
+    }
+
+    pub fn focus_editor_from_terminal(&mut self) {
+        self.terminal.focus = crate::terminal::TerminalFocus::Normal;
+        if self.tree.is_terminal_panel(self.tree.focus) {
+            self.tree.focus = self.tree.prev();
+        }
+    }
+
+    pub fn terminal_panel_focused(&self) -> bool {
+        let Some(id) = self.terminal.active_session.as_ref() else {
+            return false;
+        };
+        let Some(session) = self.terminal.sessions.get(id) else {
+            return false;
+        };
+        session.panel_id.is_some_and(|panel_id| {
+            self.tree.focus == panel_id
+                && self.terminal.focus == crate::terminal::TerminalFocus::Insert
         })
     }
 }

@@ -16,6 +16,7 @@ use self::document_colors::DocumentColorsHandler;
 use self::document_links::DocumentLinksHandler;
 
 pub mod agent;
+pub mod terminal;
 mod auto_save;
 pub mod completion;
 pub mod diagnostics;

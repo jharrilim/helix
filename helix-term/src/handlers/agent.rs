@@ -9,7 +9,7 @@ use helix_acp::{
 };
 use helix_core::{diff, Rope};
 use helix_view::{
-    agent::{AgentCursorRequest, AgentModeMeta, AgentSessionMeta, AgentTranscriptEntry},
+    agent::{AgentCursorRequest, AgentModeMeta, AgentPermissionOption, AgentPendingPermission, AgentSessionMeta, AgentTranscriptEntry},
     Editor, View, ViewId,
 };
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -115,6 +115,8 @@ impl AgentController {
             skip_authenticate: settings.skip_authenticate,
             default_mode: settings.default_mode.clone(),
             mcp_config_path: settings.mcp_config_path.clone(),
+            debug_logging: settings.debug_logging,
+            auto_approve_permissions: settings.auto_approve_permissions,
         };
 
         let (handle, events_rx) = AgentRuntime::spawn(config, fs_read, fs_write);
@@ -126,7 +128,13 @@ impl AgentController {
 
     pub fn end_session(&self) {
         if let Some(handle) = &self.runtime {
-            handle.send(AgentCommand::Stop);
+            handle.send(AgentCommand::CloseSession);
+        }
+    }
+
+    pub fn new_session(&self, cwd: Option<PathBuf>) {
+        if let Some(handle) = &self.runtime {
+            handle.send(AgentCommand::NewSession { cwd });
         }
     }
 
@@ -164,25 +172,22 @@ impl AgentController {
         jobs.spawn(async move {
             while let Some(event) = rx.recv().await {
                 job::dispatch(move |editor, compositor| {
-                    let open_picker = editor.agent.open_session_picker;
-                    let open_mode_picker = editor.agent.open_mode_picker;
-                    let open_cursor_request = editor.agent.open_cursor_request;
                     apply_event(editor, &event);
-                    if open_picker {
+                    if editor.agent.open_session_picker {
                         editor.agent.open_session_picker = false;
                         crate::commands::agent::show_history_picker(editor, compositor);
                     }
-                    if open_mode_picker {
-                        editor.agent.open_mode_picker = false;
-                        crate::ui::agent_cursor::show_mode_picker(editor, compositor);
-                    }
-                    if open_cursor_request {
+                    if editor.agent.open_cursor_request {
                         editor.agent.open_cursor_request = false;
                         if editor.agent.cursor_question_flow.is_some() {
                             crate::ui::agent_cursor::resume_question_flow(editor, compositor);
                         } else {
                             crate::ui::agent_cursor::show_cursor_request_ui(editor, compositor);
                         }
+                    }
+                    if editor.agent.open_permission_picker {
+                        editor.agent.open_permission_picker = false;
+                        crate::ui::agent_permission::show_permission_picker(editor, compositor);
                     }
                 })
                 .await;
@@ -213,7 +218,37 @@ pub fn send_prompt(controller: &AgentController, editor: &mut Editor, text: Stri
     editor.agent.input.clear();
     editor.agent.input_cursor = 0;
     editor.agent.pending = true;
-    controller.send(AgentCommand::SendPrompt { text });
+    let context = gather_prompt_context(editor);
+    controller.send(AgentCommand::SendPrompt { text, context });
+}
+
+pub fn gather_prompt_context(editor: &Editor) -> Option<helix_acp::AgentPromptContext> {
+    if !editor.agent_settings().include_editor_context {
+        return None;
+    }
+
+    for (view, _) in editor.tree.views() {
+        if editor.tree.is_agent_panel(view.id) {
+            continue;
+        }
+        let doc = editor.documents.get(&view.doc)?;
+        let path = doc.path()?.to_path_buf();
+        let selection = doc.selection(view.id).primary();
+        let text = doc.text();
+        let from = selection.from();
+        let to = selection.to();
+        let selection = if from != to {
+            Some(text.slice(from..to).to_string())
+        } else {
+            None
+        };
+        return Some(helix_acp::AgentPromptContext {
+            file_path: path,
+            selection,
+        });
+    }
+
+    None
 }
 
 /// Applies a mock ACP event using the same path as the real runtime listener.
@@ -223,19 +258,31 @@ pub fn apply_test_agent_event(editor: &mut Editor, event: AgentEvent) {
 }
 
 fn apply_event(editor: &mut Editor, event: &AgentEvent) {
+    let mut needs_redraw = true;
     match event {
         AgentEvent::Initialized {
             agent_name,
             agent_version,
             auth_methods,
             load_session,
+            close_session,
         } => {
             let name = agent_name.as_deref().unwrap_or("unknown");
             let version = agent_version.as_deref().unwrap_or("unknown");
             editor.agent.push_debug(format!(
-                "ui: initialized agent={name} v={version} auth={auth_methods:?} load_session={load_session}"
+                "ui: initialized agent={name} v={version} auth={auth_methods:?} load_session={load_session} close_session={close_session}"
             ));
+            editor.agent.close_session = *close_session;
             editor.agent.status = Some(format!("connected to {name}"));
+        }
+        AgentEvent::SessionClosed => {
+            editor.agent.active_session = None;
+            editor.agent.mode = None;
+            editor.agent.pending = false;
+            editor.agent.cursor_request = None;
+            editor.agent.cursor_question_flow = None;
+            editor.agent.pending_permission = None;
+            editor.agent.status = Some("agent session closed".into());
         }
         AgentEvent::Authenticated { method_id } => {
             editor
@@ -300,9 +347,13 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
         }
         AgentEvent::SessionList { sessions } => {
             editor.agent.pending = false;
-            editor
-                .agent
-                .set_sessions(sessions.iter().map(session_meta_from_acp).collect());
+            let mut sessions: Vec<_> = sessions.iter().map(session_meta_from_acp).collect();
+            let preferred_cwd = editor
+                .last_cwd
+                .clone()
+                .or_else(|| std::env::current_dir().ok());
+            crate::commands::agent::sort_agent_sessions(&mut sessions, preferred_cwd.as_deref());
+            editor.agent.set_sessions(sessions);
             if editor.agent.sessions.is_empty() {
                 editor.agent.status = Some("no agent sessions found".into());
             } else {
@@ -318,9 +369,36 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
         AgentEvent::Message(msg) => {
             editor.agent.pending = false;
             editor.agent.load_replay_count = editor.agent.load_replay_count.saturating_add(1);
-            if let Some(entry) = map_message(msg.clone()) {
-                editor.agent.append_or_push(entry);
+            match msg {
+                AgentMessage::ToolCall {
+                    id,
+                    title,
+                    status,
+                    detail,
+                } => {
+                    editor.agent.upsert_tool_call(
+                        id.clone(),
+                        title.clone(),
+                        status.clone(),
+                        detail.clone(),
+                    );
+                }
+                _ => {
+                    if let Some(entry) = map_message(msg.clone()) {
+                        editor.agent.append_or_push(entry);
+                    }
+                }
             }
+        }
+        AgentEvent::ToolCallUpdated {
+            id,
+            title,
+            status,
+            detail,
+        } => {
+            editor
+                .agent
+                .update_tool_call(id, title.clone(), status.clone(), detail.clone());
         }
         AgentEvent::TurnStarted => {
             editor.agent.pending = true;
@@ -358,13 +436,29 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
                 .agent
                 .push_entry(AgentTranscriptEntry::Error { text: text.clone() });
         }
-        AgentEvent::PermissionRequested { title, message, .. } => {
-            editor.agent.push_entry(AgentTranscriptEntry::System {
-                text: format!("permission: {title} — {message}"),
+        AgentEvent::PermissionRequested {
+            request_id,
+            title,
+            message,
+            options,
+        } => {
+            editor.agent.pending_permission = Some(AgentPendingPermission {
+                request_id: *request_id,
+                title: title.clone(),
+                message: message.clone(),
+                options: options
+                    .iter()
+                    .map(|option| AgentPermissionOption {
+                        id: option.id.clone(),
+                        label: option.label.clone(),
+                    })
+                    .collect(),
             });
+            editor.agent.open_permission_picker = true;
         }
         AgentEvent::Debug { text } => {
             editor.agent.push_debug(text);
+            needs_redraw = false;
         }
         AgentEvent::CursorRequest {
             request_id,
@@ -379,7 +473,9 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
             editor.agent.open_cursor_request = true;
         }
     }
-    helix_event::request_redraw();
+    if needs_redraw {
+        helix_event::request_redraw();
+    }
 }
 
 fn session_meta_from_acp(session: &helix_acp::AgentSessionInfo) -> AgentSessionMeta {
@@ -455,15 +551,7 @@ fn map_message(msg: AgentMessage) -> Option<AgentTranscriptEntry> {
         AgentMessage::Thought { text } if !text.is_empty() => {
             AgentTranscriptEntry::Thought { text }
         }
-        AgentMessage::ToolCall {
-            name,
-            status,
-            detail,
-        } => AgentTranscriptEntry::ToolCall {
-            name,
-            status,
-            detail,
-        },
+        AgentMessage::ToolCall { .. } => return None,
         AgentMessage::Plan { entries } => AgentTranscriptEntry::Plan { entries },
         AgentMessage::System { text } if !text.is_empty() => AgentTranscriptEntry::System { text },
         AgentMessage::Error { text } if !text.is_empty() => AgentTranscriptEntry::Error { text },

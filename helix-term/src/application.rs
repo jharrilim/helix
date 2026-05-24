@@ -150,6 +150,9 @@ impl Application {
         crate::agent::init(std::sync::Arc::new(std::sync::Mutex::new(
             handlers::agent::AgentController::default(),
         )));
+        crate::terminal::init(std::sync::Arc::new(std::sync::Mutex::new(
+            handlers::terminal::TerminalController::default(),
+        )));
 
         if args.load_tutor {
             let path = helix_loader::runtime_file(Path::new("tutor"));
@@ -1368,6 +1371,7 @@ impl Application {
         };
 
         crate::agent::with_controller(|controller| controller.shutdown());
+        crate::terminal::shutdown_all();
 
         if let Err(err) = self.editor.flush_writes().await {
             log::error!("Error writing: {}", err);
