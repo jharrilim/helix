@@ -4,7 +4,7 @@ use helix_view::{input::KeyEvent, Editor};
 
 use crate::{
     compositor::{self, Component, Compositor},
-    job::{self, Jobs},
+    job::Jobs,
 };
 
 use super::helpers::make_job_callback;

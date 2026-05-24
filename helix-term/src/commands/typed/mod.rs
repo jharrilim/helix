@@ -1,11 +1,6 @@
-use std::fmt::Write;
-use std::ops::{self, Deref};
 
 use crate::commands::prelude::*;
-use crate::commands::Context;
-use helix_core::command_line::{Args, Flag, Signature, Token, TokenKind};
-use helix_core::fuzzy::fuzzy_match;
-use helix_view::expansion;
+use helix_core::command_line::{Args, Flag, Signature};
 use crate::ui::completers::{self, Completer};
 
 mod registry;
@@ -31,7 +26,6 @@ pub(crate) use lifecycle::buffers_remaining_impl;
 
 use registry::*;
 pub use registry::{SHELL_COMPLETER, SHELL_SIGNATURE};
-use helix_core::command_line;
 
 #[derive(Clone)]
 pub struct TypableCommand {

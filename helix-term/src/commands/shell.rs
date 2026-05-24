@@ -1,5 +1,5 @@
 use super::prelude::*;
-use super::{Context, helpers::*, typed::{complete_command_args, SHELL_COMPLETER, SHELL_SIGNATURE}};
+use super::{Context, typed::{complete_command_args, SHELL_COMPLETER, SHELL_SIGNATURE}};
 
 #[derive(Eq, PartialEq)]
 pub enum ShellBehavior {

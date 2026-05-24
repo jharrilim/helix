@@ -51,7 +51,3 @@ mod mappable;
 pub use mappable::MappableCommand;
 
 pub use helix_view::{align_view, Align, Editor};
-
-pub(crate) use prelude::*;
-pub(crate) use crate::compositor;
-pub(crate) use crate::job;

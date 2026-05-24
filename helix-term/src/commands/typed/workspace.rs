@@ -1,7 +1,6 @@
 use super::super::prelude::*;
 use helix_core::command_line::Args;
 use helix_stdx::path::home_dir;
-use super::super::Context;
 use super::lsp::lsp_restart;
 use helix_view::editor::ConfigEvent;
 fn parse_first_arg_as_dir(args: &Args, last_cwd: Option<PathBuf>) -> anyhow::Result<PathBuf> {

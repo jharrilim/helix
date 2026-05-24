@@ -2,10 +2,9 @@ use crate::job::Job;
 use super::super::prelude::*;
 use super::buffer::{buffer_close_by_ids_impl, buffer_gather_paths_impl};
 use super::registry::WRITE_NO_FORMAT_FLAG;
-use super::super::{make_format_callback, Context};
-use helix_core::command_line::{Args, Signature};
+use super::super::make_format_callback;
+use helix_core::command_line::Args;
 use helix_core::line_ending;
-use helix_view::editor::CloseError;
 pub(crate) fn exit(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());

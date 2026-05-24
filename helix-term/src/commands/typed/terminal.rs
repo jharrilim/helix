@@ -1,6 +1,5 @@
 use super::super::prelude::*;
 use helix_core::command_line::Args;
-use super::super::Context;
 pub(crate) fn typed_terminal_open(
     cx: &mut compositor::Context,
     args: Args<'_>,

@@ -1,5 +1,5 @@
 use super::super::prelude::*;
-use super::super::{dap_start_impl, Context};
+use super::super::dap_start_impl;
 use helix_core::command_line::Args;
 pub(crate) fn debug_eval(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {

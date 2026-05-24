@@ -1,10 +1,8 @@
 use std::ops::Deref;
 use super::super::prelude::*;
 use helix_core::command_line::{self, Args};
-use helix_stdx::path::home_dir;
 use helix_view::editor::ConfigEvent;
 use serde_json::Value;
-use super::super::Context;
 pub(crate) fn theme(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
     let true_color = cx.editor.config.load().true_color || crate::true_color();
     match event {

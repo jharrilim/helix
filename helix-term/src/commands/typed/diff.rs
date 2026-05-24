@@ -1,6 +1,5 @@
 use super::super::prelude::*;
 use helix_core::command_line::Args;
-use super::super::Context;
 pub(crate) fn reset_diff_change(
     cx: &mut compositor::Context,
     _args: Args,

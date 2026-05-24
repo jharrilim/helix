@@ -13,7 +13,7 @@ pub use tui::{
 pub use helix_core::{
     char_idx_at_visual_offset,
     chars::char_is_word,
-    command_line::{self, Args},
+    command_line::Args,
     comment,
     doc_formatter::TextFormat,
     encoding, find_workspace,
@@ -23,7 +23,7 @@ pub use helix_core::{
     indent::{self, IndentStyle},
     line_ending::{get_line_ending_of_str, line_end_char_index, LineEnding},
     match_brackets,
-    movement::{self, move_horizontally, move_vertically, move_vertically_visual, Direction, Movement},
+    movement::{self, move_vertically_visual, Direction, Movement},
     object, pos_at_coords,
     regex::{self, Regex},
     search::{self},
@@ -59,14 +59,13 @@ pub use crate::{
 
 pub(crate) use crate::filter_picker_entry;
 
-pub use crate::job::{self, Jobs};
+pub use crate::job::{self};
 pub use std::{
     borrow::Cow,
     char::{ToLowercase, ToUppercase},
     cmp::Ordering,
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     error::Error,
-    fmt,
     future::Future,
     io::Read,
     num::NonZeroUsize,
@@ -74,7 +73,6 @@ pub use std::{
 };
 
 pub use once_cell::sync::Lazy;
-pub use serde::de::{self, Deserialize, Deserializer};
 pub use url::Url;
 
 pub use grep_regex::RegexMatcherBuilder;

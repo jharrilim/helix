@@ -1,8 +1,7 @@
 use super::prelude::*;
 use super::{
-    append_mode, collapse_selection, delete_by_selection_insert_mode, goto_line_impl,
-    goto_next_tabstop, insert_mode, keep_primary_selection, move_parent_node_end, Context,
-    helpers::*,
+    append_mode, delete_by_selection_insert_mode,
+    goto_next_tabstop, insert_mode, move_parent_node_end, Context,
 };
 
 use crate::{events::PostInsertChar, key};

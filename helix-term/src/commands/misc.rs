@@ -1,6 +1,6 @@
 use super::prelude::*;
 use super::{
-    insert_char, lsp, scroll, syntax, syntax_symbol_picker, syntax_workspace_symbol_picker,
+    insert_char, lsp, syntax_symbol_picker, syntax_workspace_symbol_picker,
     Context, helpers::*,
 };
 
@@ -93,7 +93,7 @@ pub fn suspend(_cx: &mut Context) {
     }
 }
 
-enum IncrementDirection {
+pub(crate) enum IncrementDirection {
     Increase,
     Decrease,
 }
@@ -110,7 +110,7 @@ pub fn decrement(cx: &mut Context) {
 
 /// Increment objects within selections by `amount`.
 /// A negative `amount` will decrement objects within selections.
-pub fn increment_impl(cx: &mut Context, increment_direction: IncrementDirection) {
+pub(crate) fn increment_impl(cx: &mut Context, increment_direction: IncrementDirection) {
     let sign = match increment_direction {
         IncrementDirection::Increase => 1,
         IncrementDirection::Decrease => -1,

@@ -1,5 +1,5 @@
 use super::prelude::*;
-use super::{Context, helpers::*};
+use super::Context;
 
 pub fn search_impl(
     editor: &mut Editor,

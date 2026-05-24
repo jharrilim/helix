@@ -1,8 +1,7 @@
 use super::super::prelude::*;
 use super::registry::WRITE_NO_FORMAT_FLAG;
 use super::lifecycle::{write_impl, WriteOptions};
-use super::super::Context;
-use helix_core::command_line::{Args, Signature};
+use helix_core::command_line::Args;
 use serde_json::Value;
 pub(crate) fn update(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {

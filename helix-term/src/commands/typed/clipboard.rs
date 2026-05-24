@@ -1,5 +1,5 @@
 use super::super::prelude::*;
-use super::super::{paste, paste_bracketed_value, replace_selections_with_register, yank_joined_impl, yank_main_selection_to_register, Context, Paste};
+use super::super::{paste, replace_selections_with_register, yank_joined_impl, yank_main_selection_to_register, Paste};
 use helix_core::command_line::Args;
 pub(crate) fn yank_main_selection_to_clipboard(
     cx: &mut compositor::Context,

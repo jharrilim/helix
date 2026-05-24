@@ -1,5 +1,5 @@
 use super::prelude::*;
-use super::{Context, helpers::*, MappableCommand};
+use super::{Context, MappableCommand};
 use crate::commands::typed;
 
 pub fn file_picker(cx: &mut Context) {

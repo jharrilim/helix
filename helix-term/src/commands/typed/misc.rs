@@ -3,7 +3,6 @@ use std::io::BufReader;
 use super::super::prelude::*;
 use helix_core::command_line::Args;
 use helix_view::document::read_to_string;
-use super::super::Context;
 pub(crate) fn get_character_info(
     cx: &mut compositor::Context,
     _args: Args,

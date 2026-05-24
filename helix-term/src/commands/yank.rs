@@ -111,7 +111,7 @@ pub fn yank_main_selection_to_primary_clipboard(cx: &mut Context) {
 }
 
 #[derive(Copy, Clone)]
-pub(crate) enum Paste {
+pub enum Paste {
     Before,
     After,
     Cursor,
@@ -119,7 +119,7 @@ pub(crate) enum Paste {
 
 static LINE_ENDING_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"\r\n|\r|\n").unwrap());
 
-pub fn paste_impl(
+pub(crate) fn paste_impl(
     values: &[String],
     doc: &mut Document,
     view: &mut View,

@@ -1,8 +1,6 @@
-use crate::job::Job;
 use super::super::prelude::*;
-use super::registry::{SHELL_COMPLETER, SHELL_SIGNATURE};
-use super::super::{shell, shell_impl_async, Context, ShellBehavior};
-use helix_core::command_line::{Args, Signature};
+use super::super::{shell, shell_impl_async, ShellBehavior};
+use helix_core::command_line::Args;
 pub(crate) fn append_output(
     cx: &mut compositor::Context,
     args: Args,

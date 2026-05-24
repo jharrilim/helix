@@ -318,7 +318,7 @@ pub fn switch_to_lowercase(cx: &mut Context) {
         string.chunks().map(|chunk| chunk.to_lowercase()).collect()
     });
 }
-enum Operation {
+pub(crate) enum Operation {
     Delete,
     Change,
 }
@@ -337,12 +337,12 @@ pub fn selection_is_linewise(selection: &Selection, text: &Rope) -> bool {
     })
 }
 
-enum YankAction {
+pub(crate) enum YankAction {
     Yank,
     NoYank,
 }
 
-pub fn delete_selection_impl(cx: &mut Context, op: Operation, yank: YankAction) {
+pub(crate) fn delete_selection_impl(cx: &mut Context, op: Operation, yank: YankAction) {
     let (view, doc) = current!(cx.editor);
 
     let selection = doc.selection(view.id);
@@ -474,7 +474,7 @@ pub fn ensure_selections_forward(cx: &mut Context) {
     doc.set_selection(view.id, selection);
 }
 
-enum IndentFallbackPos {
+pub(crate) enum IndentFallbackPos {
     LineStart,
     LineEnd,
 }
@@ -491,7 +491,7 @@ pub fn insert_at_line_end(cx: &mut Context) {
 
 // Enter insert mode and auto-indent the current line if it is empty.
 // If the line is not empty, move the cursor to the specified fallback position.
-pub fn insert_with_indent(cx: &mut Context, cursor_fallback: IndentFallbackPos) {
+pub(crate) fn insert_with_indent(cx: &mut Context, cursor_fallback: IndentFallbackPos) {
     enter_insert_mode(cx);
 
     let (view, doc) = current!(cx.editor);

@@ -1,5 +1,5 @@
 use super::prelude::*;
-use super::{Context, helpers::*};
+use super::Context;
 
 pub fn select_all(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
@@ -70,7 +70,7 @@ pub fn merge_consecutive_selections(cx: &mut Context) {
     doc.set_selection(view.id, selection);
 }
 
-enum Extend {
+pub(crate) enum Extend {
     Above,
     Below,
 }
@@ -91,7 +91,7 @@ pub fn extend_line_below(cx: &mut Context) {
 pub fn extend_line_above(cx: &mut Context) {
     extend_line_impl(cx, Extend::Above);
 }
-pub fn extend_line_impl(cx: &mut Context, extend: Extend) {
+pub(crate) fn extend_line_impl(cx: &mut Context, extend: Extend) {
     let count = cx.count();
     let (view, doc) = current!(cx.editor);
 
@@ -135,7 +135,7 @@ pub fn select_line_below(cx: &mut Context) {
 pub fn select_line_above(cx: &mut Context) {
     select_line_impl(cx, Extend::Above);
 }
-pub fn select_line_impl(cx: &mut Context, extend: Extend) {
+pub(crate) fn select_line_impl(cx: &mut Context, extend: Extend) {
     let mut count = cx.count();
     let (view, doc) = current!(cx.editor);
     let text = doc.text();
@@ -271,13 +271,13 @@ pub fn rotate_selections_last(cx: &mut Context) {
 }
 
 #[derive(Debug)]
-enum ReorderStrategy {
+pub(crate) enum ReorderStrategy {
     RotateForward,
     RotateBackward,
     Reverse,
 }
 
-pub fn reorder_selection_contents(cx: &mut Context, strategy: ReorderStrategy) {
+pub(crate) fn reorder_selection_contents(cx: &mut Context, strategy: ReorderStrategy) {
     let count = cx.count;
     let (view, doc) = current!(cx.editor);
     let text = doc.text().slice(..);

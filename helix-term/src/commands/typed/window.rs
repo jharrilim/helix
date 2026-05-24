@@ -1,7 +1,7 @@
 use super::super::prelude::*;
 use super::buffer::open_impl;
 use super::super::view::split as editor_split;
-use super::super::{goto_line_impl, goto_line_without_jumplist, Context};
+use super::super::goto_line_without_jumplist;
 use helix_core::command_line::Args;
 pub(crate) fn vsplit(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {

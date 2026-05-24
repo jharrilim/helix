@@ -1,6 +1,6 @@
 use super::super::prelude::*;
-use super::super::{make_format_callback, Context};
-use helix_core::command_line::{Args, Flag, Signature};
+use super::super::make_format_callback;
+use helix_core::command_line::Args;
 use helix_core::indent::MAX_INDENT;
 use helix_view::document::DEFAULT_LANGUAGE_NAME;
 pub(crate) fn format(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {

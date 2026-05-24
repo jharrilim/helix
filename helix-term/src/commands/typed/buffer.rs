@@ -1,9 +1,6 @@
-use std::io::BufReader;
 use super::super::prelude::*;
-use super::registry::BUFFER_CLOSE_OTHERS_SIGNATURE;
-use super::super::{goto_buffer, Context};
+use super::super::goto_buffer;
 use helix_core::command_line::Args;
-use helix_view::document::{read_to_string, DEFAULT_LANGUAGE_NAME};
 use helix_view::editor::CloseError;
 pub(crate) fn open(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
