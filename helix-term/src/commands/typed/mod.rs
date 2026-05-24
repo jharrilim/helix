@@ -1,6 +1,6 @@
 
 use crate::commands::prelude::*;
-use helix_core::command_line::{Args, Flag, Signature};
+use helix_core::command_line::{Args, Signature};
 use crate::ui::completers::{self, Completer};
 
 mod registry;
@@ -24,10 +24,9 @@ mod terminal;
 pub use lifecycle::{write_all_impl, WriteAllOptions, WriteOptions};
 pub(crate) use lifecycle::buffers_remaining_impl;
 
-use registry::*;
 pub use registry::{SHELL_COMPLETER, SHELL_SIGNATURE};
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct TypableCommand {
     pub name: &'static str,
     pub aliases: &'static [&'static str],
@@ -37,7 +36,7 @@ pub struct TypableCommand {
     pub signature: Signature,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct CommandCompleter {
     positional_args: &'static [Completer],
     var_args: Completer,
@@ -73,9 +72,10 @@ impl CommandCompleter {
     }
 }
 
-pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = include!("command_list.rs");
-
+mod command_list;
 mod infra;
+
+pub use command_list::TYPABLE_COMMAND_LIST;
 
 pub use infra::{
     command_mode, complete_command_args, execute_command, TYPABLE_COMMAND_MAP,
