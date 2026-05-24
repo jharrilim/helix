@@ -133,6 +133,12 @@ impl Editor {
         Ok(())
     }
 
+    pub(crate) fn clear_doc_relative_paths(&mut self) {
+        for doc in self.documents_mut() {
+            doc.clear_relative_path();
+        }
+    }
+
     pub fn get_last_cwd(&mut self) -> Option<&std::path::Path> {
         self.last_cwd.as_deref()
     }
