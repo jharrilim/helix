@@ -20,6 +20,7 @@ mod test {
     mod auto_pairs;
     mod command_line;
     mod commands;
+    mod focused_leaf;
     mod languages;
     mod movement;
     mod splits;

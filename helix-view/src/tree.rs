@@ -1,5 +1,21 @@
+//! Split tree for editor views and auxiliary panel leaves.
+//!
+//! `tree.focus` may point at a document [`View`] or an auxiliary panel leaf
+//! (agent, git, terminal). Use [`Tree::try_focused_view`] or
+//! [`Tree::focused_kind`] when the focused node might not be a view. Do not
+//! call [`Tree::get`] / [`Tree::get_mut`] on panel IDs.
+
 use crate::{graphics::Rect, View, ViewId};
 use slotmap::SlotMap;
+
+/// Kind of leaf node in the split tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LeafKind {
+    View,
+    AgentPanel,
+    GitPanel,
+    TerminalPanel,
+}
 
 /// Agent chat panel leaf in the split tree.
 #[derive(Debug)]
@@ -52,6 +68,51 @@ pub enum Content {
     GitPanel(GitPanel),
     TerminalPanel(TerminalPanel),
     Container(Box<Container>),
+}
+
+impl Content {
+    /// Returns the leaf kind when this node is a leaf, not a container.
+    pub fn leaf_kind(&self) -> Option<LeafKind> {
+        match self {
+            Self::View(_) => Some(LeafKind::View),
+            Self::AgentPanel(_) => Some(LeafKind::AgentPanel),
+            Self::GitPanel(_) => Some(LeafKind::GitPanel),
+            Self::TerminalPanel(_) => Some(LeafKind::TerminalPanel),
+            Self::Container(_) => None,
+        }
+    }
+
+    /// Returns the screen area for a leaf node.
+    pub fn leaf_area(&self) -> Option<Rect> {
+        match self {
+            Self::View(view) => Some(view.area),
+            Self::AgentPanel(panel) => Some(panel.area),
+            Self::GitPanel(panel) => Some(panel.area),
+            Self::TerminalPanel(panel) => Some(panel.area),
+            Self::Container(_) => None,
+        }
+    }
+
+    /// Sets the screen area for a leaf node.
+    pub fn set_leaf_area(&mut self, area: Rect) {
+        match self {
+            Self::View(view) => view.area = area,
+            Self::AgentPanel(panel) => panel.area = area,
+            Self::GitPanel(panel) => panel.area = area,
+            Self::TerminalPanel(panel) => panel.area = area,
+            Self::Container(_) => {}
+        }
+    }
+
+    fn leaf_id(&self) -> Option<ViewId> {
+        match self {
+            Self::View(view) => Some(view.id),
+            Self::AgentPanel(panel) => Some(panel.id),
+            Self::GitPanel(panel) => Some(panel.id),
+            Self::TerminalPanel(panel) => Some(panel.id),
+            Self::Container(_) => None,
+        }
+    }
 }
 
 impl Node {
@@ -708,6 +769,21 @@ impl Tree {
         }
     }
 
+    /// Returns the kind of leaf at `id`, if any.
+    pub fn leaf_kind(&self, id: ViewId) -> Option<LeafKind> {
+        self.nodes.get(id)?.content.leaf_kind()
+    }
+
+    /// Returns the kind of the currently focused leaf, if any.
+    pub fn focused_kind(&self) -> Option<LeafKind> {
+        self.leaf_kind(self.focus)
+    }
+
+    /// Returns the focused document view, if focus is on a view leaf.
+    pub fn try_focused_view(&self) -> Option<&View> {
+        self.try_get(self.focus)
+    }
+
     /// Get a mutable reference to a [View] by index.
     /// # Panics
     ///
@@ -719,6 +795,14 @@ impl Tree {
                 ..
             } => view,
             _ => unreachable!(),
+        }
+    }
+
+    /// Try to get a mutable reference to a [View] by index.
+    pub fn try_get_mut(&mut self, index: ViewId) -> Option<&mut View> {
+        match &mut self.nodes.get_mut(index)?.content {
+            Content::View(view) => Some(view),
+            _ => None,
         }
     }
 
@@ -764,20 +848,9 @@ impl Tree {
         while let Some((key, area)) = self.stack.pop() {
             let node = &mut self.nodes[key];
 
-            match &mut node.content {
-                Content::View(view) => {
-                    view.area = area;
-                }
-                Content::AgentPanel(panel) => {
-                    panel.area = area;
-                }
-                Content::GitPanel(panel) => {
-                    panel.area = area;
-                }
-                Content::TerminalPanel(panel) => {
-                    panel.area = area;
-                }
-                Content::Container(container) => {
+            if node.content.leaf_kind().is_some() {
+                node.content.set_leaf_area(area);
+            } else if let Content::Container(container) = &mut node.content {
                     // debug!!("setting container area {:?}", area);
                     container.area = area;
 
@@ -838,7 +911,6 @@ impl Tree {
                             }
                         }
                     }
-                }
             }
         }
     }
@@ -915,12 +987,9 @@ impl Tree {
                 children.iter().skip_while(|i| **i != id).copied().nth(1)?
             }
         };
-        let (current_x, current_y) = match &self.nodes[self.focus].content {
-            Content::View(current_view) => (current_view.area.left(), current_view.area.top()),
-            Content::AgentPanel(panel) => (panel.area.left(), panel.area.top()),
-            Content::GitPanel(panel) => (panel.area.left(), panel.area.top()),
-            Content::TerminalPanel(panel) => (panel.area.left(), panel.area.top()),
-            Content::Container(_) => unreachable!(),
+        let (current_x, current_y) = {
+            let area = self.nodes[self.focus].content.leaf_area()?;
+            (area.left(), area.top())
         };
 
         // If the child is a container the search finds the closest container child
@@ -931,13 +1000,16 @@ impl Tree {
                     // find closest split based on x because y is irrelevant
                     // in a vertical container (and already correct based on previous search)
                     child_id = *container.children.iter().min_by_key(|id| {
-                        let x = match &self.nodes[**id].content {
-                            Content::View(view) => view.area.left(),
-                            Content::AgentPanel(panel) => panel.area.left(),
-                            Content::GitPanel(panel) => panel.area.left(),
-                            Content::TerminalPanel(panel) => panel.area.left(),
-                            Content::Container(container) => container.area.left(),
-                        };
+                        let x = self.nodes[**id]
+                            .content
+                            .leaf_area()
+                            .map(|area| area.left())
+                            .unwrap_or_else(|| {
+                                match &self.nodes[**id].content {
+                                    Content::Container(container) => container.area.left(),
+                                    _ => 0,
+                                }
+                            });
                         (current_x as i16 - x as i16).abs()
                     })?;
                 }
@@ -945,13 +1017,16 @@ impl Tree {
                     // find closest split based on y because x is irrelevant
                     // in a horizontal container (and already correct based on previous search)
                     child_id = *container.children.iter().min_by_key(|id| {
-                        let y = match &self.nodes[**id].content {
-                            Content::View(view) => view.area.top(),
-                            Content::AgentPanel(panel) => panel.area.top(),
-                            Content::GitPanel(panel) => panel.area.top(),
-                            Content::TerminalPanel(panel) => panel.area.top(),
-                            Content::Container(container) => container.area.top(),
-                        };
+                        let y = self.nodes[**id]
+                            .content
+                            .leaf_area()
+                            .map(|area| area.top())
+                            .unwrap_or_else(|| {
+                                match &self.nodes[**id].content {
+                                    Content::Container(container) => container.area.top(),
+                                    _ => 0,
+                                }
+                            });
                         (current_y as i16 - y as i16).abs()
                     })?;
                 }
@@ -995,71 +1070,75 @@ impl Tree {
     pub fn swap_split_in_direction(&mut self, direction: Direction) -> Option<()> {
         let focus = self.focus;
         let target = self.find_split_in_direction(focus, direction)?;
+        if focus == target {
+            return None;
+        }
         let focus_parent = self.nodes[focus].parent;
         let target_parent = self.nodes[target].parent;
 
         if focus_parent == target_parent {
-            let parent = focus_parent;
-            let [parent, focus, target] = self.nodes.get_disjoint_mut([parent, focus, target])?;
-            match (&mut parent.content, &mut focus.content, &mut target.content) {
-                (
-                    Content::Container(parent),
-                    Content::View(focus_view),
-                    Content::View(target_view),
-                ) => {
-                    let focus_pos = parent.children.iter().position(|id| focus_view.id == *id)?;
-                    let target_pos = parent
-                        .children
-                        .iter()
-                        .position(|id| target_view.id == *id)?;
-                    // swap node positions so that traversal order is kept
-                    parent.children[focus_pos] = target_view.id;
-                    parent.children[target_pos] = focus_view.id;
-                    // swap area so that views rendered at the correct location
-                    std::mem::swap(&mut focus_view.area, &mut target_view.area);
-
-                    Some(())
-                }
-                _ => unreachable!(),
+            let parent_id = focus_parent;
+            let [parent, focus_node, target_node] =
+                self.nodes.get_disjoint_mut([parent_id, focus, target])?;
+            let Content::Container(parent) = &mut parent.content else {
+                return None;
+            };
+            if focus_node.content.leaf_kind().is_none() || target_node.content.leaf_kind().is_none() {
+                return None;
             }
+            Self::swap_leaf_siblings(parent, &mut focus_node.content, &mut target_node.content, focus, target)
         } else {
-            let [focus_parent, target_parent, focus, target] =
+            let [focus_parent_node, target_parent_node, focus_node, target_node] =
                 self.nodes
                     .get_disjoint_mut([focus_parent, target_parent, focus, target])?;
-            match (
-                &mut focus_parent.content,
-                &mut target_parent.content,
-                &mut focus.content,
-                &mut target.content,
-            ) {
-                (
-                    Content::Container(focus_parent),
-                    Content::Container(target_parent),
-                    Content::View(focus_view),
-                    Content::View(target_view),
-                ) => {
-                    let focus_pos = focus_parent
-                        .children
-                        .iter()
-                        .position(|id| focus_view.id == *id)?;
-                    let target_pos = target_parent
-                        .children
-                        .iter()
-                        .position(|id| target_view.id == *id)?;
-                    // re-parent target and focus nodes
-                    std::mem::swap(
-                        &mut focus_parent.children[focus_pos],
-                        &mut target_parent.children[target_pos],
-                    );
-                    std::mem::swap(&mut focus.parent, &mut target.parent);
-                    // swap area so that views rendered at the correct location
-                    std::mem::swap(&mut focus_view.area, &mut target_view.area);
-
-                    Some(())
-                }
-                _ => unreachable!(),
+            let (Content::Container(focus_parent), Content::Container(target_parent)) =
+                (&mut focus_parent_node.content, &mut target_parent_node.content)
+            else {
+                return None;
+            };
+            if focus_node.content.leaf_kind().is_none() || target_node.content.leaf_kind().is_none() {
+                return None;
             }
+            let focus_id = focus_node.content.leaf_id()?;
+            let target_id = target_node.content.leaf_id()?;
+            let focus_pos = focus_parent
+                .children
+                .iter()
+                .position(|id| *id == focus)?;
+            let target_pos = target_parent
+                .children
+                .iter()
+                .position(|id| *id == target)?;
+            std::mem::swap(
+                &mut focus_parent.children[focus_pos],
+                &mut target_parent.children[target_pos],
+            );
+            std::mem::swap(&mut focus_node.parent, &mut target_node.parent);
+            let focus_area = focus_node.content.leaf_area()?;
+            let target_area = target_node.content.leaf_area()?;
+            focus_node.content.set_leaf_area(target_area);
+            target_node.content.set_leaf_area(focus_area);
+            let _ = (focus_id, target_id);
+            Some(())
         }
+    }
+
+    fn swap_leaf_siblings(
+        parent: &mut Container,
+        focus_content: &mut Content,
+        target_content: &mut Content,
+        focus: ViewId,
+        target: ViewId,
+    ) -> Option<()> {
+        let focus_pos = parent.children.iter().position(|id| *id == focus)?;
+        let target_pos = parent.children.iter().position(|id| *id == target)?;
+        parent.children[focus_pos] = target;
+        parent.children[target_pos] = focus;
+        let focus_area = focus_content.leaf_area()?;
+        let target_area = target_content.leaf_area()?;
+        focus_content.set_leaf_area(target_area);
+        target_content.set_leaf_area(focus_area);
+        Some(())
     }
 
     pub fn area(&self) -> Rect {
@@ -1432,5 +1511,29 @@ mod test {
         assert_eq!(panel.session_id, "session-1");
         assert!(panel.area.width > 0);
         assert!(panel.area.height > 0);
+    }
+
+    #[test]
+    fn focused_kind_and_swap_with_panel() {
+        let mut tree = Tree::new(Rect {
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 40,
+        });
+        let view_id = tree.insert(View::new(DocumentId::default(), GutterConfig::default()));
+        let panel_id = tree.split_git_panel(Layout::Vertical);
+        tree.focus = panel_id;
+
+        assert_eq!(tree.focused_kind(), Some(LeafKind::GitPanel));
+        assert!(tree.try_focused_view().is_none());
+
+        tree.focus = view_id;
+        assert_eq!(tree.focused_kind(), Some(LeafKind::View));
+        assert!(tree.try_focused_view().is_some());
+
+        tree.focus = panel_id;
+        assert!(tree.swap_split_in_direction(Direction::Right).is_some());
+        assert_eq!(tree.focus, panel_id);
     }
 }

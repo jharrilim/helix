@@ -6,6 +6,10 @@
 //! this circumvents the problem because it is just like indexing fields by hand and then
 //! putting a `&mut` in front of it. This way rust can see that we are only borrowing a
 //! part of the struct and not the entire thing.
+//!
+//! When `tree.focus` may be an auxiliary panel (agent, git, terminal), use
+//! [`try_current!`] or check [`Editor::focused_leaf_kind`]. Do not call [`current!`]
+//! without guarding.
 
 /// Get the current view and document mutably as a tuple.
 /// Returns `(&mut View, &mut Document)`
@@ -19,12 +23,41 @@ macro_rules! current {
     }};
 }
 
+/// Get the current view and document mutably when focus is on a document view.
+/// Returns `Option<(&mut View, &mut Document)>`
+#[macro_export]
+macro_rules! try_current {
+    ($editor:expr) => {{
+        let focus = $editor.tree.focus;
+        if let Some(view) = $editor.tree.try_get_mut(focus) {
+            let id = view.doc;
+            Some((view, $crate::doc_mut!($editor, &id)))
+        } else {
+            None
+        }
+    }};
+}
+
 #[macro_export]
 macro_rules! current_ref {
     ($editor:expr) => {{
         let view = $editor.tree.get($editor.tree.focus);
         let doc = &$editor.documents[&view.doc];
         (view, doc)
+    }};
+}
+
+/// Get the current view and document when focus is on a document view.
+/// Returns `Option<(&View, &Document)>`
+#[macro_export]
+macro_rules! try_current_ref {
+    ($editor:expr) => {{
+        if let Some(view) = $editor.tree.try_get($editor.tree.focus) {
+            let doc = &$editor.documents[&view.doc];
+            Some((view, doc))
+        } else {
+            None
+        }
     }};
 }
 
@@ -52,6 +85,18 @@ macro_rules! view_mut {
     }};
 }
 
+/// Get the current view mutably when focus is on a document view.
+/// Returns `Option<&mut View>`
+#[macro_export]
+macro_rules! try_view_mut {
+    ($editor:expr, $id:expr) => {{
+        $editor.tree.try_get_mut($id)
+    }};
+    ($editor:expr) => {{
+        $editor.tree.try_get_mut($editor.tree.focus)
+    }};
+}
+
 /// Get the current view immutably
 /// Returns `&View`
 #[macro_export]
@@ -61,6 +106,18 @@ macro_rules! view {
     }};
     ($editor:expr) => {{
         $editor.tree.get($editor.tree.focus)
+    }};
+}
+
+/// Get the current view immutably when focus is on a document view.
+/// Returns `Option<&View>`
+#[macro_export]
+macro_rules! try_view {
+    ($editor:expr, $id:expr) => {{
+        $editor.tree.try_get($id)
+    }};
+    ($editor:expr) => {{
+        $editor.tree.try_get($editor.tree.focus)
     }};
 }
 

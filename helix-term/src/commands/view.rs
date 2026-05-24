@@ -63,8 +63,8 @@ pub fn transpose_view(cx: &mut Context) {
 ///
 /// Maintain the current view (both the cursor's position and view in document).
 pub fn split(editor: &mut Editor, action: Action) {
-    if editor.tree.is_agent_panel(editor.tree.focus) {
-        editor.set_error("cannot split from the agent panel");
+    if !editor.is_document_view_focused() {
+        editor.set_error("cannot split from a panel");
         return;
     }
 
@@ -109,6 +109,11 @@ pub fn wclose(cx: &mut Context) {
         if let Some(session_id) = cx.editor.terminal.active_session.clone() {
             crate::commands::terminal::close_terminal_session(cx.editor, &session_id);
         }
+        return;
+    }
+
+    if cx.editor.tree.is_git_panel(cx.editor.tree.focus) {
+        cx.editor.close_git_panel();
         return;
     }
 

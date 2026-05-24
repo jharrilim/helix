@@ -1,8 +1,15 @@
 use std::path::PathBuf;
 
-use crate::ViewId;
+use crate::{tree::Layout, ViewId};
 
 use super::Editor;
+
+fn prepare_panel_focus(editor: &mut Editor) {
+    editor.enter_normal_mode();
+    if let Some((view, doc)) = try_current!(editor) {
+        doc.append_changes_to_history(view);
+    }
+}
 
 impl Editor {
     pub fn agent_settings(&self) -> crate::agent::AgentSettings {
@@ -39,20 +46,18 @@ impl Editor {
     }
 
     /// Agent and terminal stack in one column; either splits beside the editor alone.
-    fn auxiliary_split_layout(&self, pair_with_other_auxiliary: bool) -> crate::tree::Layout {
+    fn auxiliary_split_layout(&self, pair_with_other_auxiliary: bool) -> Layout {
         if pair_with_other_auxiliary {
-            crate::tree::Layout::Horizontal
+            Layout::Horizontal
         } else {
-            crate::tree::Layout::Vertical
+            Layout::Vertical
         }
     }
 
     pub fn open_agent_panel(&mut self) {
         if let Some(panel_id) = self.agent.panel_id {
-            if !self.tree.is_agent_panel(self.tree.focus) {
-                self.enter_normal_mode();
-                let (view, doc) = current!(self);
-                doc.append_changes_to_history(view);
+            if self.tree.focus != panel_id {
+                prepare_panel_focus(self);
             }
             self.tree.focus = panel_id;
             self.agent.focus = crate::agent::AgentFocus::Normal;
@@ -65,6 +70,7 @@ impl Editor {
             self.tree.focus = terminal_panel;
         }
 
+        prepare_panel_focus(self);
         let panel_id = self.tree.split_agent_panel(layout);
         self.agent.panel_id = Some(panel_id);
         self.agent.focus = crate::agent::AgentFocus::Normal;
@@ -88,10 +94,8 @@ impl Editor {
 
     pub fn focus_agent_panel(&mut self) {
         if let Some(panel_id) = self.agent.panel_id {
-            if !self.tree.is_agent_panel(self.tree.focus) {
-                self.enter_normal_mode();
-                let (view, doc) = current!(self);
-                doc.append_changes_to_history(view);
+            if self.tree.focus != panel_id {
+                prepare_panel_focus(self);
             }
             self.tree.focus = panel_id;
             self.agent.focus = crate::agent::AgentFocus::Normal;
@@ -105,18 +109,10 @@ impl Editor {
         }
     }
 
-    pub fn agent_panel_focused(&self) -> bool {
-        self.agent.panel_id.is_some_and(|id| {
-            self.tree.focus == id && self.agent.focus == crate::agent::AgentFocus::Insert
-        })
-    }
-
     pub fn open_terminal_panel(&mut self, session_id: String) {
         if self.terminal.panel_id.is_some() {
             if !self.tree.is_terminal_panel(self.tree.focus) {
-                self.enter_normal_mode();
-                let (view, doc) = current!(self);
-                doc.append_changes_to_history(view);
+                prepare_panel_focus(self);
             }
             self.terminal.switch_session(&session_id);
             self.sync_terminal_panel_session_id();
@@ -146,6 +142,7 @@ impl Editor {
             self.tree.focus = agent_panel;
         }
 
+        prepare_panel_focus(self);
         let panel_id = self.tree.split_terminal_panel(layout, session_id.clone());
         self.terminal.panel_id = Some(panel_id);
         self.terminal.focus = crate::terminal::TerminalFocus::Normal;
@@ -184,10 +181,8 @@ impl Editor {
             return;
         };
 
-        if !self.tree.is_terminal_panel(self.tree.focus) {
-            self.enter_normal_mode();
-            let (view, doc) = current!(self);
-            doc.append_changes_to_history(view);
+        if self.tree.focus != panel_id {
+            prepare_panel_focus(self);
         }
         self.tree.focus = panel_id;
         self.terminal.focus = crate::terminal::TerminalFocus::Normal;
@@ -200,25 +195,17 @@ impl Editor {
         }
     }
 
-    pub fn terminal_panel_focused(&self) -> bool {
-        self.terminal.panel_id.is_some_and(|panel_id| {
-            self.tree.focus == panel_id
-                && self.terminal.focus == crate::terminal::TerminalFocus::Insert
-        })
-    }
-
     pub fn open_git_panel(&mut self) {
         if let Some(panel_id) = self.git.panel_id {
-            if !self.tree.is_git_panel(self.tree.focus) {
-                self.enter_normal_mode();
-                let (view, doc) = current!(self);
-                doc.append_changes_to_history(view);
+            if self.tree.focus != panel_id {
+                prepare_panel_focus(self);
             }
             self.tree.focus = panel_id;
             return;
         }
 
-        let panel_id = self.tree.split_git_panel(crate::tree::Layout::Vertical);
+        prepare_panel_focus(self);
+        let panel_id = self.tree.split_git_panel(Layout::Vertical);
         self.git.panel_id = Some(panel_id);
         self.tree.focus = panel_id;
         self._refresh();
@@ -239,10 +226,8 @@ impl Editor {
 
     pub fn focus_git_panel(&mut self) {
         if let Some(panel_id) = self.git.panel_id {
-            if !self.tree.is_git_panel(self.tree.focus) {
-                self.enter_normal_mode();
-                let (view, doc) = current!(self);
-                doc.append_changes_to_history(view);
+            if self.tree.focus != panel_id {
+                prepare_panel_focus(self);
             }
             self.tree.focus = panel_id;
         }

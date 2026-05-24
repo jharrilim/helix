@@ -3,6 +3,9 @@
 Developer-facing roadmap for an in-editor terminal emulator. User documentation
 should live in `book/src/terminal.md` once Tier 1 ships.
 
+Shared split-tree focus infrastructure for agent, terminal, and git panels is
+tracked in [`roadmaps/focused-leaf-refactor.md`](../roadmaps/focused-leaf-refactor.md).
+
 Work top-down by tier. Mark items complete (`[x]`) when merged.
 
 ## Vision

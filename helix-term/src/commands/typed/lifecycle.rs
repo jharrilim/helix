@@ -64,6 +64,10 @@ pub(crate) fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent
         crate::commands::terminal::close_terminal_panel_editor(cx.editor);
         return Ok(());
     }
+    if cx.editor.tree.is_git_panel(cx.editor.tree.focus) {
+        cx.editor.close_git_panel();
+        return Ok(());
+    }
 
     cx.editor.close(view!(cx.editor).id);
 
@@ -84,6 +88,10 @@ pub(crate) fn force_quit(cx: &mut compositor::Context, _args: Args, event: Promp
         crate::commands::terminal::close_terminal_panel_editor(cx.editor);
         return Ok(());
     }
+    if cx.editor.tree.is_git_panel(cx.editor.tree.focus) {
+        cx.editor.close_git_panel();
+        return Ok(());
+    }
 
     cx.editor.close(view!(cx.editor).id);
 
@@ -96,6 +104,10 @@ pub(crate) fn write_impl(
     path: Option<&str>,
     options: WriteOptions,
 ) -> anyhow::Result<()> {
+    if !crate::commands::require_document_view_or_error(cx.editor) {
+        return Ok(());
+    }
+
     let config = cx.editor.config();
     let jobs = &mut cx.jobs;
     let (view, doc) = current!(cx.editor);
@@ -512,6 +524,7 @@ fn quit_all_impl(cx: &mut compositor::Context, force: bool) -> anyhow::Result<()
 
     crate::commands::agent::close_agent_panel_editor(cx.editor);
     crate::commands::terminal::close_terminal_panel_editor(cx.editor);
+    cx.editor.close_git_panel();
 
     // close all views
     let views: Vec<_> = cx.editor.tree.views().map(|(view, _)| view.id).collect();

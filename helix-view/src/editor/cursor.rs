@@ -37,15 +37,14 @@ impl Editor {
     pub fn cursor(&self) -> (Option<Position>, crate::graphics::CursorKind) {
         use crate::graphics::CursorKind;
 
-        if self.tree.is_agent_panel(self.tree.focus)
-            || self.tree.is_terminal_panel(self.tree.focus)
-            || self.tree.is_git_panel(self.tree.focus)
-        {
+        if !self.is_document_view_focused() {
             return (None, CursorKind::Hidden);
         }
 
         let config = self.config();
-        let (view, doc) = current_ref!(self);
+        let Some((view, doc)) = try_current_ref!(self) else {
+            return (None, CursorKind::Hidden);
+        };
         if let Some(mut pos) = self.cursor_cache.get(view, doc) {
             let inner = view.inner_area(doc);
             pos.col += inner.x as usize;

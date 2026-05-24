@@ -3,13 +3,55 @@ use helix_core::Selection;
 
 use crate::{
     events::DocumentFocusLost,
+    focus::FocusTarget,
     graphics::Rect,
-    tree, DocumentId, ViewId,
+    tree::{self, LeafKind},
+    DocumentId, ViewId,
 };
 
 use super::Editor;
 
 impl Editor {
+    pub fn is_document_view_focused(&self) -> bool {
+        self.tree.try_focused_view().is_some()
+    }
+
+    pub fn focused_leaf_kind(&self) -> Option<LeafKind> {
+        self.tree.focused_kind()
+    }
+
+    pub fn focus_target(&self) -> Option<FocusTarget> {
+        let kind = self.tree.focused_kind()?;
+        Some(FocusTarget::from_kind(self.tree.focus, kind))
+    }
+
+    pub fn git_panel_tree_focused(&self) -> bool {
+        self.git
+            .panel_id
+            .is_some_and(|id| self.tree.focus == id)
+    }
+
+    pub fn agent_input_focused(&self) -> bool {
+        self.agent.panel_id.is_some_and(|id| {
+            self.tree.focus == id && self.agent.focus == crate::agent::AgentFocus::Insert
+        })
+    }
+
+    pub fn terminal_input_focused(&self) -> bool {
+        self.terminal.panel_id.is_some_and(|panel_id| {
+            self.tree.focus == panel_id
+                && self.terminal.focus == crate::terminal::TerminalFocus::Insert
+        })
+    }
+
+    pub fn agent_panel_focused(&self) -> bool {
+        self.agent_input_focused()
+    }
+
+    pub fn terminal_panel_focused(&self) -> bool {
+        self.terminal_input_focused()
+    }
+
     pub fn resize(&mut self, area: Rect) {
         if self.tree.resize(area) {
             self._refresh();
@@ -17,56 +59,51 @@ impl Editor {
     }
 
     pub fn focus(&mut self, view_id: ViewId) {
+        let Some(kind) = self.tree.leaf_kind(view_id) else {
+            return;
+        };
+        self.focus_leaf(FocusTarget::from_kind(view_id, kind));
+    }
+
+    pub fn focus_document(&mut self, view_id: ViewId) {
+        self.focus_leaf(FocusTarget::Document(view_id));
+    }
+
+    pub fn focus_leaf(&mut self, target: FocusTarget) {
+        let view_id = target.id();
         if self.tree.focus == view_id {
             return;
         }
 
-        if self.tree.is_agent_panel(view_id) {
-            if !self.tree.is_agent_panel(self.tree.focus) {
-                self.enter_normal_mode();
-                let (view, doc) = current!(self);
-                doc.append_changes_to_history(view);
-            }
-            self.tree.focus = view_id;
-            self.agent.focus = crate::agent::AgentFocus::Normal;
-            return;
-        }
-
-        if self.tree.is_terminal_panel(view_id) {
-            if !self.tree.is_terminal_panel(self.tree.focus) {
-                self.enter_normal_mode();
-                let (view, doc) = current!(self);
-                doc.append_changes_to_history(view);
-            }
-            self.tree.focus = view_id;
-            self.terminal.focus = crate::terminal::TerminalFocus::Normal;
-            if let Some(panel) = self.tree.terminal_panel(view_id) {
-                self.terminal.active_session = Some(panel.session_id.clone());
-            }
-            return;
-        }
-
-        if self.tree.is_git_panel(view_id) {
-            if !self.tree.is_git_panel(self.tree.focus) {
-                self.enter_normal_mode();
-                let (view, doc) = current!(self);
-                doc.append_changes_to_history(view);
-            }
-            self.tree.focus = view_id;
-            return;
-        }
-
-        // Reset mode to normal and ensure any pending changes are committed in the old document.
+        let leaving_document = self.is_document_view_focused();
         self.enter_normal_mode();
-        if !self.tree.is_agent_panel(self.tree.focus)
-            && !self.tree.is_terminal_panel(self.tree.focus)
-            && !self.tree.is_git_panel(self.tree.focus)
-        {
-            let (view, doc) = current!(self);
-            doc.append_changes_to_history(view);
+        if leaving_document {
+            if let Some((view, doc)) = try_current!(self) {
+                doc.append_changes_to_history(view);
+            }
         }
+
+        match target {
+            FocusTarget::Document(id) => self.apply_document_focus(id),
+            FocusTarget::Agent(id) => {
+                self.tree.focus = id;
+                self.agent.focus = crate::agent::AgentFocus::Normal;
+            }
+            FocusTarget::Terminal(id) => {
+                self.tree.focus = id;
+                self.terminal.focus = crate::terminal::TerminalFocus::Normal;
+                if let Some(panel) = self.tree.terminal_panel(id) {
+                    self.terminal.active_session = Some(panel.session_id.clone());
+                }
+            }
+            FocusTarget::Git(id) => {
+                self.tree.focus = id;
+            }
+        }
+    }
+
+    fn apply_document_focus(&mut self, view_id: ViewId) {
         self.ensure_cursor_in_view(view_id);
-        // Update jumplist selections with new document changes.
         for (view, _focused) in self.tree.views_mut() {
             let doc = doc_mut!(self, &view.doc);
             view.sync_changes(doc);

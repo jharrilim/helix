@@ -19,6 +19,23 @@ use crate::{
 
 use super::Context;
 
+/// Returns the focused document view when focus is not on an auxiliary panel.
+pub(crate) fn require_document_view(
+    editor: &mut Editor,
+) -> Option<(&mut View, &mut Document)> {
+    helix_view::try_current!(editor)
+}
+
+/// Sets an editor error when focus is on an auxiliary panel instead of a document view.
+pub(crate) fn require_document_view_or_error(editor: &mut Editor) -> bool {
+    if require_document_view(editor).is_some() {
+        true
+    } else {
+        editor.set_error("command requires a document view");
+        false
+    }
+}
+
 #[inline]
 pub(crate) fn make_job_callback<T, F>(
     call: impl Future<Output = helix_lsp::Result<T>> + 'static + Send,
