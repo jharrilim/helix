@@ -137,6 +137,16 @@ pub fn highlighted_code_block<'a>(
     Text::from(lines)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkdownSpan {
+    pub text: String,
+    pub style: Style,
+    pub link: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RichLine(pub Vec<MarkdownSpan>);
+
 pub struct Markdown {
     contents: String,
 
@@ -161,6 +171,8 @@ impl Markdown {
         "markup.heading.6",
     ];
     const INDENT: &'static str = "  ";
+    const LINK_TEXT_STYLE: &'static str = "markup.link.text";
+    const LINK_URL_STYLE: &'static str = "markup.link.url";
 
     pub fn new(contents: String, config_loader: Arc<ArcSwap<syntax::Loader>>) -> Self {
         Self {
@@ -170,10 +182,26 @@ impl Markdown {
     }
 
     pub fn parse(&self, theme: Option<&Theme>) -> tui::text::Text<'_> {
-        fn push_line<'a>(spans: &mut Vec<Span<'a>>, lines: &mut Vec<Spans<'a>>) {
+        let lines = self
+            .parse_rich(theme)
+            .into_iter()
+            .map(|RichLine(spans)| {
+                Spans::from(
+                    spans
+                        .into_iter()
+                        .map(|span| Span::styled(span.text, span.style))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>();
+        Text::from(lines)
+    }
+
+    pub fn parse_rich(&self, theme: Option<&Theme>) -> Vec<RichLine> {
+        fn push_line(spans: &mut Vec<MarkdownSpan>, lines: &mut Vec<RichLine>) {
             let spans = std::mem::take(spans);
             if !spans.is_empty() {
-                lines.push(Spans::from(spans));
+                lines.push(RichLine(spans));
             }
         }
 
@@ -181,7 +209,6 @@ impl Markdown {
         options.insert(Options::ENABLE_STRIKETHROUGH);
         let parser = Parser::new_ext(&self.contents, options);
 
-        // TODO: if possible, render links as terminal hyperlinks: https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda
         let mut tags = Vec::new();
         let mut spans = Vec::new();
         let mut lines = Vec::new();
@@ -201,6 +228,14 @@ impl Markdown {
         let numbered_list_style = get_theme(Self::NUMBERED_LIST_STYLE);
         let unnumbered_list_style = get_theme(Self::UNNUMBERED_LIST_STYLE);
         let rule_style = get_theme(Self::RULE_STYLE);
+        let link_text_style = {
+            let style = get_theme(Self::LINK_TEXT_STYLE);
+            if style == Style::default() {
+                get_theme(Self::LINK_URL_STYLE)
+            } else {
+                style
+            }
+        };
         let heading_styles: Vec<Style> = Self::HEADING_STYLES
             .iter()
             .map(|key| get_theme(key))
@@ -226,8 +261,6 @@ impl Markdown {
         for event in parser {
             match event {
                 Event::Start(Tag::List(list)) => {
-                    // if the list stack is not empty this is a sub list, in that
-                    // case we need to push the current line before proceeding
                     if !list_stack.is_empty() {
                         push_line(&mut spans, &mut lines);
                     }
@@ -237,9 +270,8 @@ impl Markdown {
                 Event::End(TagEnd::List(_)) => {
                     list_stack.pop();
 
-                    // whenever top-level list closes, empty line
                     if list_stack.is_empty() {
-                        lines.push(Spans::default());
+                        lines.push(RichLine(Vec::new()));
                     }
                 }
                 Event::Start(Tag::Item) => {
@@ -249,28 +281,32 @@ impl Markdown {
 
                     tags.push(Tag::Item);
 
-                    // get the appropriate bullet for the current list
                     let (bullet, bullet_style) = list_stack
                         .last()
-                        .unwrap_or(&None) // use the '- ' bullet in case the list stack would be empty
+                        .unwrap_or(&None)
                         .map_or((String::from("• "), unnumbered_list_style), |number| {
                             (format!("{}. ", number), numbered_list_style)
                         });
 
-                    // increment the current list number if there is one
                     if let Some(v) = list_stack.last_mut().unwrap_or(&mut None).as_mut() {
                         *v += 1;
                     }
 
                     let prefix = get_indent(list_stack.len()) + bullet.as_str();
-                    spans.push(Span::styled(prefix, bullet_style));
+                    spans.push(MarkdownSpan {
+                        text: prefix,
+                        style: bullet_style,
+                        link: None,
+                    });
                 }
                 Event::Start(tag) => {
                     tags.push(tag);
                     if spans.is_empty() && !list_stack.is_empty() {
-                        // TODO: could push indent + 2 or 3 spaces to align with
-                        // the rest of the list.
-                        spans.push(Span::from(get_indent(list_stack.len())));
+                        spans.push(MarkdownSpan {
+                            text: get_indent(list_stack.len()),
+                            style: text_style,
+                            link: None,
+                        });
                     }
                 }
                 Event::End(tag) => {
@@ -285,10 +321,9 @@ impl Markdown {
                         _ => (),
                     }
 
-                    // whenever heading, code block or paragraph closes, empty line
                     match tag {
                         TagEnd::Heading(_) | TagEnd::Paragraph | TagEnd::CodeBlock => {
-                            lines.push(Spans::default());
+                            lines.push(RichLine(Vec::new()));
                         }
                         _ => (),
                     }
@@ -306,62 +341,222 @@ impl Markdown {
                             &self.config_loader.load(),
                             None,
                         );
-                        lines.extend(tui_text.lines);
+                        lines.extend(tui_text.lines.into_iter().map(|line| {
+                            RichLine(
+                                line.0
+                                    .into_iter()
+                                    .map(|span| MarkdownSpan {
+                                        text: span.content.into_owned(),
+                                        style: span.style,
+                                        link: None,
+                                    })
+                                    .collect(),
+                            )
+                        }));
                     } else {
-                        let style = match tags.last() {
-                            Some(Tag::Heading { level, .. }) => match level {
-                                HeadingLevel::H1 => heading_styles[0],
-                                HeadingLevel::H2 => heading_styles[1],
-                                HeadingLevel::H3 => heading_styles[2],
-                                HeadingLevel::H4 => heading_styles[3],
-                                HeadingLevel::H5 => heading_styles[4],
-                                HeadingLevel::H6 => heading_styles[5],
-                            },
-                            Some(Tag::Emphasis) => text_style.add_modifier(Modifier::ITALIC),
-                            Some(Tag::Strong) => text_style.add_modifier(Modifier::BOLD),
-                            Some(Tag::Strikethrough) => {
-                                text_style.add_modifier(Modifier::CROSSED_OUT)
+                        let (style, detect_urls, active_link) = match tags.last() {
+                            Some(Tag::Heading { level, .. }) => (
+                                match level {
+                                    HeadingLevel::H1 => heading_styles[0],
+                                    HeadingLevel::H2 => heading_styles[1],
+                                    HeadingLevel::H3 => heading_styles[2],
+                                    HeadingLevel::H4 => heading_styles[3],
+                                    HeadingLevel::H5 => heading_styles[4],
+                                    HeadingLevel::H6 => heading_styles[5],
+                                },
+                                false,
+                                None,
+                            ),
+                            Some(Tag::Emphasis) => (
+                                text_style.add_modifier(Modifier::ITALIC),
+                                false,
+                                None,
+                            ),
+                            Some(Tag::Strong) => (text_style.add_modifier(Modifier::BOLD), false, None),
+                            Some(Tag::Strikethrough) => (
+                                text_style.add_modifier(Modifier::CROSSED_OUT),
+                                false,
+                                None,
+                            ),
+                            Some(Tag::Link { dest_url, .. }) => {
+                                (link_text_style, false, Some(dest_url.to_string()))
                             }
-                            _ => text_style,
+                            _ => (text_style, true, None),
                         };
-                        spans.push(Span::styled(text, style));
+                        append_text_spans(
+                            &mut spans,
+                            text.into_string(),
+                            style,
+                            text_style,
+                            link_text_style,
+                            active_link.as_deref(),
+                            detect_urls,
+                        );
                     }
                 }
                 Event::Code(text) | Event::Html(text) => {
-                    spans.push(Span::styled(text, code_style));
+                    spans.push(MarkdownSpan {
+                        text: text.into_string(),
+                        style: code_style,
+                        link: None,
+                    });
                 }
                 Event::SoftBreak | Event::HardBreak => {
                     push_line(&mut spans, &mut lines);
                     if !list_stack.is_empty() {
-                        // TODO: could push indent + 2 or 3 spaces to align with
-                        // the rest of the list.
-                        spans.push(Span::from(get_indent(list_stack.len())));
+                        spans.push(MarkdownSpan {
+                            text: get_indent(list_stack.len()),
+                            style: text_style,
+                            link: None,
+                        });
                     }
                 }
                 Event::Rule => {
-                    lines.push(Spans::from(Span::styled("───", rule_style)));
-                    lines.push(Spans::default());
+                    lines.push(RichLine(vec![MarkdownSpan {
+                        text: "───".into(),
+                        style: rule_style,
+                        link: None,
+                    }]));
+                    lines.push(RichLine(Vec::new()));
                 }
-                // TaskListMarker(bool) true if checked
                 _ => {
                     log::warn!("unhandled markdown event {:?}", event);
                 }
             }
-            // build up a vec of Paragraph tui widgets
         }
 
         if !spans.is_empty() {
-            lines.push(Spans::from(spans));
+            lines.push(RichLine(spans));
         }
 
-        // if last line is empty, remove it
-        if let Some(line) = lines.last() {
-            if line.0.is_empty() {
-                lines.pop();
-            }
+        if matches!(lines.last(), Some(RichLine(spans)) if spans.is_empty()) {
+            lines.pop();
         }
 
-        Text::from(lines)
+        lines
+    }
+}
+
+fn append_text_spans(
+    spans: &mut Vec<MarkdownSpan>,
+    text: String,
+    style: Style,
+    text_style: Style,
+    link_style: Style,
+    active_link: Option<&str>,
+    detect_urls: bool,
+) {
+    if let Some(dest) = active_link {
+        spans.push(MarkdownSpan {
+            text,
+            style,
+            link: Some(dest.to_string()),
+        });
+        return;
+    }
+
+    if detect_urls && style == text_style {
+        spans.extend(split_https_urls(&text, text_style, link_style));
+        return;
+    }
+
+    spans.push(MarkdownSpan {
+        text,
+        style,
+        link: None,
+    });
+}
+
+fn split_https_urls(text: &str, normal_style: Style, link_style: Style) -> Vec<MarkdownSpan> {
+    let mut spans = Vec::new();
+    let mut rest = text;
+    while let Some(idx) = rest.find("https://") {
+        if idx > 0 {
+            spans.push(MarkdownSpan {
+                text: rest[..idx].to_string(),
+                style: normal_style,
+                link: None,
+            });
+        }
+        rest = &rest[idx..];
+        let end = rest
+            .char_indices()
+            .skip(1)
+            .find(|(_, ch)| {
+                ch.is_whitespace() || matches!(ch, ')' | ']' | '>' | '"' | '\'' | ',')
+            })
+            .map(|(index, _)| index)
+            .unwrap_or(rest.len());
+        let url = &rest[..end];
+        spans.push(MarkdownSpan {
+            text: url.to_string(),
+            style: link_style,
+            link: Some(url.to_string()),
+        });
+        rest = &rest[end..];
+    }
+
+    if !rest.is_empty() {
+        spans.push(MarkdownSpan {
+            text: rest.to_string(),
+            style: normal_style,
+            link: None,
+        });
+    }
+
+    spans
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    use arc_swap::ArcSwap;
+    use helix_core::syntax;
+    use helix_view::Theme;
+
+    fn empty_loader() -> Arc<ArcSwap<syntax::Loader>> {
+        let loader = syntax::Loader::new(syntax::config::Configuration {
+            language: Vec::new(),
+            language_server: HashMap::new(),
+        })
+        .expect("empty syntax loader");
+        Arc::new(ArcSwap::from_pointee(loader))
+    }
+
+    #[test]
+    fn parse_rich_marks_markdown_links() {
+        let markdown = Markdown::new(
+            "see [the docs](https://example.com/docs) here".into(),
+            empty_loader(),
+        );
+        let lines = markdown.parse_rich(None);
+        let linked: Vec<_> = lines
+            .into_iter()
+            .flat_map(|RichLine(spans)| spans)
+            .filter(|span| span.link.is_some())
+            .collect();
+        assert_eq!(linked.len(), 1);
+        assert_eq!(linked[0].text, "the docs");
+        assert_eq!(linked[0].link.as_deref(), Some("https://example.com/docs"));
+    }
+
+    #[test]
+    fn parse_rich_detects_bare_https_urls() {
+        let markdown = Markdown::new(
+            "visit https://example.com/docs for details".into(),
+            empty_loader(),
+        );
+        let theme = Theme::default();
+        let lines = markdown.parse_rich(Some(&theme));
+        let linked: Vec<_> = lines
+            .into_iter()
+            .flat_map(|RichLine(spans)| spans)
+            .filter(|span| span.link.is_some())
+            .collect();
+        assert_eq!(linked.len(), 1);
+        assert_eq!(linked[0].text, "https://example.com/docs");
     }
 }
 

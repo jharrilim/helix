@@ -1,4 +1,5 @@
 mod agent;
+mod agent_link;
 mod git;
 mod panel;
 pub mod plan;

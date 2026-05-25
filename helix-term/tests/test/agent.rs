@@ -350,6 +350,33 @@ async fn agent_transcript_scroll_clamps_at_top() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn agent_transcript_renders_clickable_links() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+
+    open_agent_panel(&mut app);
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::Message(AgentMessage::Assistant {
+            text: "see [link label](README.md) and https://example.com/docs".into(),
+        }),
+    );
+
+    app.render_frame().await;
+    let buffer = app.test_buffer_string();
+
+    assert!(
+        buffer.contains("link label"),
+        "expected markdown link label in transcript\n{buffer}"
+    );
+    assert!(
+        buffer.contains("https://example.com"),
+        "expected bare https URL in transcript\n{buffer}"
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn agent_permission_request_opens_picker() -> anyhow::Result<()> {
     let mut app = AppBuilder::new().build()?;
 

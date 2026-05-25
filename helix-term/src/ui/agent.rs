@@ -15,7 +15,7 @@ use helix_view::{
     Editor, ViewId,
 };
 use tui::buffer::Buffer as Surface;
-use tui::text::{Span, Spans};
+use tui::text::Span;
 use tui::widgets::{Block, Widget};
 
 const INPUT_PROMPT_HEIGHT: u16 = 1;
@@ -35,6 +35,7 @@ struct TranscriptLine {
 struct TranscriptSpan {
     text: String,
     style: Style,
+    link: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -153,12 +154,20 @@ pub fn handle_mouse(editor: &mut Editor, event: MouseEvent) -> EventResult {
             let config = editor.config();
             let mut yanked = false;
             let mut toggled_tool = false;
+            let mut opened_link = false;
             if let Some(sel) = editor.agent.transcript_selection.as_mut() {
                 sel.dragging = false;
                 let text = selection_text(&layout.lines, sel);
                 if text.is_empty() {
                     let (start, _) = sel.normalized();
-                    if let Some(line) = layout.lines.get(start.line) {
+                    if let Some(href) = layout
+                        .lines
+                        .get(start.line)
+                        .and_then(|line| link_at_column(line, start.col))
+                    {
+                        super::agent_link::open_agent_link(editor, &href);
+                        opened_link = true;
+                    } else if let Some(line) = layout.lines.get(start.line) {
                         if matches!(line.kind, TranscriptLineKind::ToolHeader | TranscriptLineKind::ShellHeader) {
                             if let Some(index) = line.entry_index {
                                 editor.agent.toggle_collapsible_block(index);
@@ -192,7 +201,7 @@ pub fn handle_mouse(editor: &mut Editor, event: MouseEvent) -> EventResult {
                     yanked = true;
                 }
             }
-            if toggled_tool || yanked {
+            if toggled_tool || yanked || opened_link {
                 helix_event::request_redraw();
             }
             EventResult::Consumed(None)
@@ -294,6 +303,18 @@ pub(crate) fn scroll_transcript_by(editor: &mut Editor, delta: i32) {
             .saturating_sub((-delta) as usize);
     }
     helix_event::request_redraw();
+}
+
+fn link_at_column(line: &TranscriptLine, col: usize) -> Option<String> {
+    let mut char_idx = 0usize;
+    for span in &line.spans {
+        let len = span.text.graphemes(true).count();
+        if col >= char_idx && col < char_idx + len {
+            return span.link.clone();
+        }
+        char_idx += len;
+    }
+    None
 }
 
 fn point_from_mouse(
@@ -938,8 +959,8 @@ fn append_markdown_lines(
     lines: &mut Vec<TranscriptLine>,
 ) {
     let markdown = Markdown::new(text.to_string(), editor.syn_loader.clone());
-    let rendered = markdown.parse(Some(&editor.theme));
-    if rendered.lines.is_empty() {
+    let rendered = markdown.parse_rich(Some(&editor.theme));
+    if rendered.is_empty() {
         lines.push(TranscriptLine {
             text: String::new(),
             spans: Vec::new(),
@@ -949,7 +970,7 @@ fn append_markdown_lines(
         return;
     }
 
-    for line in rendered.lines {
+    for line in rendered {
         if line.0.is_empty() {
             lines.push(blank_line());
             continue;
@@ -959,20 +980,21 @@ fn append_markdown_lines(
 }
 
 fn append_wrapped_spans(
-    spans: Spans<'_>,
+    line: crate::ui::markdown::RichLine,
     width: usize,
     kind: TranscriptLineKind,
     lines: &mut Vec<TranscriptLine>,
 ) {
     if width == 0 {
         lines.push(TranscriptLine {
-            text: spans.0.iter().map(|span| span.content.as_ref()).collect(),
-            spans: spans
+            text: line.0.iter().map(|span| span.text.as_str()).collect(),
+            spans: line
                 .0
                 .into_iter()
                 .map(|span| TranscriptSpan {
-                    text: span.content.into_owned(),
+                    text: span.text,
                     style: span.style,
+                    link: span.link,
                 })
                 .collect(),
             kind,
@@ -983,15 +1005,16 @@ fn append_wrapped_spans(
 
     let mut current = Vec::new();
     let mut current_width = 0usize;
-    for span in spans.0 {
+    for span in line.0 {
         let style = span.style;
-        for grapheme in span.content.graphemes(true) {
+        let link = span.link;
+        for grapheme in span.text.graphemes(true) {
             let grapheme_width = grapheme.width();
             if current_width > 0 && current_width + grapheme_width > width {
                 push_styled_line(&mut current, kind, lines);
                 current_width = 0;
             }
-            push_styled_segment(&mut current, grapheme, style);
+            push_styled_segment(&mut current, grapheme, style, link.clone());
             current_width += grapheme_width;
         }
     }
@@ -999,9 +1022,14 @@ fn append_wrapped_spans(
     push_styled_line(&mut current, kind, lines);
 }
 
-fn push_styled_segment(spans: &mut Vec<TranscriptSpan>, text: &str, style: Style) {
+fn push_styled_segment(
+    spans: &mut Vec<TranscriptSpan>,
+    text: &str,
+    style: Style,
+    link: Option<String>,
+) {
     if let Some(last) = spans.last_mut() {
-        if last.style == style {
+        if last.style == style && last.link == link {
             last.text.push_str(text);
             return;
         }
@@ -1009,6 +1037,7 @@ fn push_styled_segment(spans: &mut Vec<TranscriptSpan>, text: &str, style: Style
     spans.push(TranscriptSpan {
         text: text.to_string(),
         style,
+        link,
     });
 }
 
