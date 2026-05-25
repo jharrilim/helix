@@ -5,7 +5,7 @@ use crate::commands;
 use helix_core::Position;
 use helix_view::{
     graphics::{CursorKind, Rect},
-    input::{KeyEvent, MouseEvent},
+    input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     tree::LeafKind,
     Editor, ViewId,
 };
@@ -113,4 +113,34 @@ pub fn panel_input_focused(editor: &Editor, kind: LeafKind) -> bool {
 
 pub fn is_auxiliary_panel(kind: &LeafKind) -> bool {
     !matches!(kind, LeafKind::View)
+}
+
+pub fn panel_wants_off_area_event(editor: &Editor, kind: LeafKind, event: &MouseEvent) -> bool {
+    match kind {
+        LeafKind::AgentPanel => {
+            editor.tree.is_agent_panel(editor.tree.focus)
+                && matches!(
+                    event.kind,
+                    MouseEventKind::Drag(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left)
+                )
+                && editor
+                    .agent
+                    .transcript_selection
+                    .as_ref()
+                    .is_some_and(|sel| sel.dragging || matches!(event.kind, MouseEventKind::Up(_)))
+        }
+        LeafKind::TerminalPanel => {
+            editor.tree.is_terminal_panel(editor.tree.focus)
+                && matches!(
+                    event.kind,
+                    MouseEventKind::Drag(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left)
+                )
+                && editor
+                    .terminal
+                    .selection
+                    .as_ref()
+                    .is_some_and(|sel| sel.dragging || matches!(event.kind, MouseEventKind::Up(_)))
+        }
+        LeafKind::GitPanel | LeafKind::View => false,
+    }
 }

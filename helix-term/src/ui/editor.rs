@@ -1371,7 +1371,9 @@ impl EditorView {
             return EventResult::Ignored(None);
         }
         if let Some(kind) = cxt.editor.focused_leaf_kind() {
-            if super::panel::is_auxiliary_panel(&kind) && !matches!(event.kind, MouseEventKind::Moved)
+            if super::panel::is_auxiliary_panel(&kind)
+                && !matches!(event.kind, MouseEventKind::Moved)
+                && super::panel::panel_wants_off_area_event(cxt.editor, kind, event)
             {
                 return super::panel::handle_mouse(cxt.editor, kind, *event);
             }

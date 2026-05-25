@@ -13,7 +13,7 @@ use helix_view::{
 use helix_vcs::{FileChange, StagingSection};
 use tui::buffer::Buffer as Surface;
 use tui::text::Span;
-use tui::widgets::{Block, Borders, Widget};
+use tui::widgets::{Block, Widget};
 
 const ACTION_BAR_HEIGHT: u16 = 1;
 
@@ -41,7 +41,7 @@ fn contains_coords(area: Rect, row: u16, column: u16) -> bool {
 }
 
 fn panel_inner(area: Rect) -> Rect {
-    Block::default().borders(Borders::ALL).inner(area)
+    super::panel_style::panel_inner(area)
 }
 
 fn action_bar_area(area: Rect) -> Rect {
@@ -119,7 +119,7 @@ pub fn render(editor: &mut Editor, area: Rect, surface: &mut Surface, _focused: 
         .unwrap_or("no branch");
     let title = format!(" Git ({branch}) ");
     let block = Block::default()
-        .borders(Borders::ALL)
+        .borders(super::panel_style::panel_borders())
         .border_style(border_style)
         .title(Span::styled(title, label_style.add_modifier(Modifier::BOLD)));
     let inner = block.inner(area);
@@ -341,7 +341,6 @@ pub fn handle_mouse(editor: &mut Editor, event: MouseEvent) -> EventResult {
 
     let panel_id = match panel_at_coords(editor, event.row, event.column) {
         Some(id) => id,
-        None if editor.tree.is_git_panel(editor.tree.focus) => editor.tree.focus,
         None => return EventResult::Ignored(None),
     };
 

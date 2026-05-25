@@ -11,13 +11,16 @@ use helix_view::{
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     keyboard::{KeyCode, KeyModifiers},
     theme::Style,
+    tree::LeafKind,
     Editor, ViewId,
 };
 use tui::buffer::Buffer as Surface;
 use tui::text::{Span, Spans};
-use tui::widgets::{Block, Borders, Widget};
+use tui::widgets::{Block, Widget};
 
-const INPUT_HEIGHT: u16 = 3;
+const INPUT_PROMPT_HEIGHT: u16 = 1;
+const STATUS_BAR_HEIGHT: u16 = 1;
+const FOOTER_HEIGHT: u16 = INPUT_PROMPT_HEIGHT + STATUS_BAR_HEIGHT;
 const HEADER_HEIGHT: u16 = 1;
 
 #[derive(Clone)]
@@ -65,22 +68,27 @@ fn contains_coords(area: Rect, row: u16, column: u16) -> bool {
 }
 
 fn panel_layout(area: Rect) -> (Rect, Rect, Rect) {
-    let inner = Block::default().borders(Borders::ALL).inner(area);
-    if inner.height < INPUT_HEIGHT + HEADER_HEIGHT + 1 {
+    let inner = super::panel_style::panel_inner(area);
+    if inner.height < FOOTER_HEIGHT + HEADER_HEIGHT + 1 {
         return (Rect::default(), Rect::default(), Rect::default());
     }
     let header = Rect {
         height: HEADER_HEIGHT,
         ..inner
     };
+    let status_bar = Rect {
+        y: inner.bottom().saturating_sub(STATUS_BAR_HEIGHT),
+        height: STATUS_BAR_HEIGHT,
+        ..inner
+    };
     let input = Rect {
-        y: inner.bottom().saturating_sub(INPUT_HEIGHT),
-        height: INPUT_HEIGHT,
+        y: status_bar.y.saturating_sub(INPUT_PROMPT_HEIGHT),
+        height: INPUT_PROMPT_HEIGHT,
         ..inner
     };
     let transcript = Rect {
         y: inner.y + HEADER_HEIGHT,
-        height: inner.height.saturating_sub(INPUT_HEIGHT + HEADER_HEIGHT),
+        height: inner.height.saturating_sub(FOOTER_HEIGHT + HEADER_HEIGHT),
         ..inner
     };
     (header, transcript, input)
@@ -93,7 +101,9 @@ pub fn handle_mouse(editor: &mut Editor, event: MouseEvent) -> EventResult {
 
     let panel_id = match panel_at_coords(editor, event.row, event.column) {
         Some(id) => id,
-        None if editor.tree.is_agent_panel(editor.tree.focus) => editor.tree.focus,
+        None if super::panel::panel_wants_off_area_event(editor, LeafKind::AgentPanel, &event) => {
+            editor.tree.focus
+        }
         None => return EventResult::Ignored(None),
     };
 
@@ -359,7 +369,7 @@ pub fn render(editor: &Editor, area: Rect, surface: &mut Surface, focused: bool)
         None => " Agent ".to_string(),
     };
     let block = Block::default()
-        .borders(Borders::ALL)
+        .borders(super::panel_style::panel_borders())
         .border_style(border_style)
         .title(Span::styled(
             title,
@@ -368,7 +378,7 @@ pub fn render(editor: &Editor, area: Rect, surface: &mut Surface, focused: bool)
     let inner = block.inner(area);
     block.render(area, surface);
 
-    if inner.height < INPUT_HEIGHT + HEADER_HEIGHT + 1 {
+    if inner.height < FOOTER_HEIGHT + HEADER_HEIGHT + 1 {
         return;
     }
 
@@ -376,14 +386,19 @@ pub fn render(editor: &Editor, area: Rect, surface: &mut Surface, focused: bool)
         height: HEADER_HEIGHT,
         ..inner
     };
+    let status_bar_area = Rect {
+        y: inner.bottom().saturating_sub(STATUS_BAR_HEIGHT),
+        height: STATUS_BAR_HEIGHT,
+        ..inner
+    };
     let input_area = Rect {
-        y: inner.bottom().saturating_sub(INPUT_HEIGHT),
-        height: INPUT_HEIGHT,
+        y: status_bar_area.y.saturating_sub(INPUT_PROMPT_HEIGHT),
+        height: INPUT_PROMPT_HEIGHT,
         ..inner
     };
     let transcript_area = Rect {
         y: inner.y + HEADER_HEIGHT,
-        height: inner.height.saturating_sub(INPUT_HEIGHT + HEADER_HEIGHT),
+        height: inner.height.saturating_sub(FOOTER_HEIGHT + HEADER_HEIGHT),
         ..inner
     };
 
@@ -453,6 +468,7 @@ pub fn render(editor: &Editor, area: Rect, surface: &mut Surface, focused: bool)
         input_style,
         focused && editor.agent.focus == AgentFocus::Insert,
     );
+    render_status_bar(editor, status_bar_area, surface, focused);
 }
 
 fn short_session_id(session_id: &str) -> &str {
@@ -1002,19 +1018,27 @@ fn render_input(
             cell.set_style(input_style.add_modifier(Modifier::REVERSED));
         }
     }
+}
 
-    if area.height > 1 {
-        let hint = if focused {
-            if editor.agent.pending {
-                "INSERT · Enter send · Esc normal · drag select"
-            } else {
-                "INSERT · Enter send · Esc normal · ↑↓ history"
-            }
+fn render_status_bar(
+    editor: &Editor,
+    area: Rect,
+    surface: &mut Surface,
+    panel_focused: bool,
+) {
+    let style = super::panel_style::statusline_style(&editor.theme, panel_focused);
+    surface.set_style(area, style);
+
+    let hint = if panel_focused && editor.agent.focus == AgentFocus::Insert {
+        if editor.agent.pending {
+            " INSERT · Enter send · Esc normal · drag select "
         } else {
-            "NORMAL · i edit · C-w/Space-w switch panes · : commands"
-        };
-        surface.set_stringn(area.x, area.y + 1, hint, area.width as usize, prompt_style);
-    }
+            " INSERT · Enter send · Esc normal · ↑↓ history "
+        }
+    } else {
+        " NORMAL · i edit · C-w/Space-w switch panes · : commands "
+    };
+    surface.set_stringn(area.x, area.y, hint, area.width as usize, style);
 }
 
 fn truncate_start(text: &str, max_width: usize) -> String {
@@ -1232,8 +1256,8 @@ pub fn cursor(editor: &Editor, _area: Rect) -> (Option<Position>, CursorKind) {
     }
 
     if let Some((panel, _)) = editor.tree.agent_panels().find(|(_, focused)| *focused) {
-        let inner = Block::default().borders(Borders::ALL).inner(panel.area);
-        let input_y = inner.bottom().saturating_sub(INPUT_HEIGHT);
+        let inner = super::panel_style::panel_inner(panel.area);
+        let input_y = inner.bottom().saturating_sub(FOOTER_HEIGHT);
         let input_x = inner.x + 2;
         let input_width = inner.width.saturating_sub(2) as usize;
         let display = truncate_start(&editor.agent.input, input_width);

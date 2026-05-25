@@ -14,17 +14,18 @@ use helix_view::{
         TerminalFocus, TerminalGridPoint, TerminalSearchMatch, TerminalSelection,
         TerminalSelectionKind,
     },
+    tree::LeafKind,
     Editor, ViewId,
 };
 use tui::buffer::Buffer as Surface;
 use tui::text::Span;
-use tui::widgets::{Block, Borders, Widget};
+use tui::widgets::{Block, Widget};
 
 const TAB_BAR_HEIGHT: u16 = 1;
 const HEADER_HEIGHT: u16 = 1;
 
 pub fn panel_inner(area: Rect) -> Rect {
-    Block::default().borders(Borders::ALL).inner(area)
+    super::panel_style::panel_inner(area)
 }
 
 pub fn tab_bar_area(area: Rect) -> Rect {
@@ -208,7 +209,7 @@ fn render_panel(
 
     let Some(session_id) = session_id else {
         let block = Block::default()
-            .borders(Borders::ALL)
+            .borders(super::panel_style::panel_borders())
             .border_style(border_style)
             .title(Span::styled(" Terminal ", label_style.add_modifier(Modifier::BOLD)));
         block.render(area, surface);
@@ -235,7 +236,7 @@ fn render_panel(
     };
 
     let block = Block::default()
-        .borders(Borders::ALL)
+        .borders(super::panel_style::panel_borders())
         .border_style(border_style)
         .title(Span::styled(
             format!(" Terminal: {title} "),
@@ -495,7 +496,9 @@ pub fn handle_mouse(editor: &mut Editor, event: MouseEvent) -> EventResult {
 
     let panel_id = match panel_at_coords(editor, event.row, event.column) {
         Some(id) => id,
-        None if editor.tree.is_terminal_panel(editor.tree.focus) => editor.tree.focus,
+        None if super::panel::panel_wants_off_area_event(editor, LeafKind::TerminalPanel, &event) => {
+            editor.tree.focus
+        }
         None => return EventResult::Ignored(None),
     };
 
