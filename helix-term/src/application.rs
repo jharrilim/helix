@@ -26,7 +26,7 @@ use crate::{
     handlers,
     job::Jobs,
     keymap::Keymaps,
-    ui::{self, overlay::overlaid},
+    ui::self,
 };
 
 use log::{debug, error, info, warn};

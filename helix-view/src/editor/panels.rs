@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{tree::Layout, ViewId};
+use crate::tree::Layout;
 
 use super::Editor;
 
