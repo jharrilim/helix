@@ -22,7 +22,6 @@ use tui::text::Span;
 use tui::widgets::{Block, Widget};
 
 const TAB_BAR_HEIGHT: u16 = 1;
-const HEADER_HEIGHT: u16 = 1;
 
 pub fn panel_inner(area: Rect) -> Rect {
     super::panel_style::panel_inner(area)
@@ -33,36 +32,55 @@ pub fn tab_bar_area(area: Rect) -> Rect {
     if inner.height == 0 {
         return Rect::default();
     }
+    let height = TAB_BAR_HEIGHT.min(inner.height);
     Rect {
-        height: TAB_BAR_HEIGHT.min(inner.height),
-        ..inner
-    }
-}
-
-pub fn status_header_area(area: Rect) -> Rect {
-    let inner = panel_inner(area);
-    let tab = tab_bar_area(area);
-    if inner.height <= tab.height {
-        return Rect::default();
-    }
-    Rect {
-        y: tab.bottom(),
-        height: HEADER_HEIGHT.min(inner.height.saturating_sub(tab.height)),
-        width: inner.width,
         x: inner.x,
+        y: inner.bottom().saturating_sub(height),
+        width: inner.width,
+        height,
     }
 }
 
 pub fn grid_area(area: Rect) -> Rect {
     let inner = panel_inner(area);
-    let top = tab_bar_area(area).height + status_header_area(area).height;
-    if inner.height <= top {
+    let bottom = tab_bar_area(area).height;
+    if inner.height <= bottom {
         return Rect::default();
     }
     Rect {
-        y: inner.y + top,
-        height: inner.height.saturating_sub(top),
-        ..inner
+        y: inner.y,
+        height: inner.height.saturating_sub(bottom),
+        width: inner.width,
+        x: inner.x,
+    }
+}
+
+fn panel_border_title(
+    session_id: &str,
+    session: Option<&helix_view::terminal::TerminalSessionState>,
+    focused: bool,
+    focus: TerminalFocus,
+) -> String {
+    let title = session
+        .and_then(|session| session.title.as_deref())
+        .unwrap_or(session_id);
+    let cwd = session
+        .map(|session| session.cwd.display().to_string())
+        .unwrap_or_default();
+    let exit = session.and_then(|session| session.exit_status);
+    let mode = if focused {
+        match focus {
+            TerminalFocus::Insert => "I",
+            TerminalFocus::Select => "S",
+            TerminalFocus::Normal => "N",
+        }
+    } else {
+        "N"
+    };
+    if let Some(code) = exit {
+        format!(" [{mode}] {title} — {cwd} — exited {code} ")
+    } else {
+        format!(" [{mode}] {title} — {cwd} ")
     }
 }
 
@@ -202,7 +220,6 @@ fn render_panel(
     let theme = &editor.theme;
     let border_style = super::panel_style::border_style(theme);
     let label_style = theme.get("ui.text");
-    let header_style = theme.get("ui.text.inactive");
     let selection_style = theme.get("ui.selection");
     let search_style = theme.get("ui.highlight");
     let search_current_style = theme.get("ui.selection.active");
@@ -217,29 +234,18 @@ fn render_panel(
     };
 
     let session = editor.terminal.sessions.get(session_id);
-    let title = session
-        .and_then(|session| session.title.as_deref())
-        .unwrap_or(session_id);
-    let cwd = session
-        .map(|session| session.cwd.display().to_string())
-        .unwrap_or_default();
-    let exit = session.and_then(|session| session.exit_status);
-
-    let mode = if focused {
-        match editor.terminal.focus {
-            TerminalFocus::Insert => "I",
-            TerminalFocus::Select => "S",
-            TerminalFocus::Normal => "N",
-        }
-    } else {
-        "N"
-    };
+    let border_title = panel_border_title(
+        session_id,
+        session,
+        focused,
+        editor.terminal.focus,
+    );
 
     let block = Block::default()
         .borders(super::panel_style::panel_borders())
         .border_style(border_style)
         .title(Span::styled(
-            format!(" Terminal: {title} "),
+            border_title,
             label_style.add_modifier(Modifier::BOLD),
         ));
     let inner = block.inner(area);
@@ -251,15 +257,7 @@ fn render_panel(
 
     render_tab_bar(editor, area, surface);
 
-    let header_area = status_header_area(area);
     let body = grid_area(area);
-
-    let header = if let Some(code) = exit {
-        format!("[{mode}] {session_id} — {cwd} — exited {code}")
-    } else {
-        format!("[{mode}] {session_id} — {cwd}")
-    };
-    surface.set_string(header_area.x, header_area.y, &header, header_style);
 
     let Some(handle) = crate::terminal::session_handle(session_id) else {
         surface.set_string(body.x, body.y, "starting...", label_style);
@@ -506,7 +504,6 @@ pub fn handle_mouse(editor: &mut Editor, event: MouseEvent) -> EventResult {
 
     let panel = editor.tree.terminal_panel(panel_id).unwrap();
     let tab_area = tab_bar_area(panel.area);
-    let header = status_header_area(panel.area);
     let body = grid_area(panel.area);
 
     match event.kind {
@@ -514,9 +511,7 @@ pub fn handle_mouse(editor: &mut Editor, event: MouseEvent) -> EventResult {
             if let Some(session_id) = session_id_at_tab(editor, panel.area, event.row, event.column)
             {
                 editor.switch_terminal_session(&session_id);
-            } else if contains_coords(header, event.row, event.column)
-                || contains_coords(tab_area, event.row, event.column)
-            {
+            } else if contains_coords(tab_area, event.row, event.column) {
                 editor.terminal.focus = TerminalFocus::Normal;
                 editor.mode = helix_view::document::Mode::Normal;
             } else if contains_coords(body, event.row, event.column) {
