@@ -1026,17 +1026,40 @@ fn render_status_bar(
 ) {
     let style = super::panel_style::statusline_style(&editor.theme, panel_focused);
     surface.set_style(area, style);
-
-    let hint = if panel_focused && editor.agent.focus == AgentFocus::Insert {
-        if editor.agent.pending {
-            " INS · Enter send · Esc normal · drag select "
-        } else {
-            " INS · Enter send · Esc normal · ↑↓ history "
-        }
+    let input_mode = if panel_focused && editor.agent.focus == AgentFocus::Insert {
+        "INS"
     } else {
-        " NOR · i edit · C-w/Space-w switch panes · : commands "
+        "NOR"
     };
-    surface.set_stringn(area.x, area.y, hint, area.width as usize, style);
+    let agent_mode = agent_mode_display(editor);
+    let agent_status = editor
+        .agent
+        .status
+        .as_deref()
+        .unwrap_or(if editor.agent.pending {
+            "thinking..."
+        } else {
+            "ready"
+        });
+    let hint = if agent_mode.is_empty() {
+        format!(" {input_mode} · {agent_status}")
+    } else {
+        format!(" {input_mode} · {agent_mode} · {agent_status}")
+    };
+    surface.set_stringn(area.x, area.y, &hint, area.width as usize, style);
+}
+
+fn agent_mode_display(editor: &Editor) -> String {
+    let Some(mode_id) = editor.agent.mode.as_deref() else {
+        return String::new();
+    };
+    editor
+        .agent
+        .available_modes
+        .iter()
+        .find(|mode| mode.id == mode_id)
+        .map(|mode| mode.name.clone())
+        .unwrap_or_else(|| mode_id.to_string())
 }
 
 fn truncate_start(text: &str, max_width: usize) -> String {
