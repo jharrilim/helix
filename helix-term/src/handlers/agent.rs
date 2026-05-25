@@ -780,7 +780,7 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
                 }
                 _ => {
                     if let Some(kind) = map_message(msg.clone()) {
-                        editor.agent.push_block(kind);
+                        editor.agent.push_message_block(kind);
                     }
                 }
             }

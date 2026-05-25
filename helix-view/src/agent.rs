@@ -323,6 +323,41 @@ impl AgentState {
         self.blocks.push(AgentBlock { id, kind });
     }
 
+    /// Appends streaming text chunks to the last block when the role matches.
+    pub fn push_message_block(&mut self, kind: AgentBlockKind) {
+        let chunk = match &kind {
+            AgentBlockKind::User { text }
+            | AgentBlockKind::Assistant { text }
+            | AgentBlockKind::Thought { text } => text.as_str(),
+            _ => {
+                self.push_block(kind);
+                return;
+            }
+        };
+
+        if let Some(last) = self.blocks.last_mut() {
+            let same_role = matches!(
+                (&last.kind, &kind),
+                (AgentBlockKind::User { .. }, AgentBlockKind::User { .. })
+                    | (AgentBlockKind::Assistant { .. }, AgentBlockKind::Assistant { .. })
+                    | (AgentBlockKind::Thought { .. }, AgentBlockKind::Thought { .. })
+            );
+            if same_role {
+                match &mut last.kind {
+                    AgentBlockKind::User { text }
+                    | AgentBlockKind::Assistant { text }
+                    | AgentBlockKind::Thought { text } => {
+                        text.push_str(chunk);
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        self.push_block(kind);
+    }
+
     pub fn clear_transcript(&mut self) {
         self.blocks.clear();
         self.scroll = 0;
@@ -644,13 +679,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn push_block_never_merges_assistant_chunks() {
+    fn push_message_block_merges_consecutive_assistant_chunks() {
         let mut state = AgentState::new();
-        state.push_block(AgentBlockKind::Assistant {
+        state.push_message_block(AgentBlockKind::Assistant {
             text: "hello ".into(),
         });
-        state.push_block(AgentBlockKind::Assistant {
+        state.push_message_block(AgentBlockKind::Assistant {
             text: "world".into(),
+        });
+        assert_eq!(state.blocks.len(), 1);
+        let AgentBlockKind::Assistant { text } = &state.blocks[0].kind else {
+            panic!("expected assistant block");
+        };
+        assert_eq!(text, "hello world");
+    }
+
+    #[test]
+    fn push_message_block_does_not_merge_different_roles() {
+        let mut state = AgentState::new();
+        state.push_message_block(AgentBlockKind::User {
+            text: "hi".into(),
+        });
+        state.push_message_block(AgentBlockKind::Assistant {
+            text: "hello".into(),
+        });
+        state.push_message_block(AgentBlockKind::Assistant {
+            text: "!".into(),
         });
         assert_eq!(state.blocks.len(), 2);
     }

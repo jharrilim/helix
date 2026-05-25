@@ -430,7 +430,7 @@ async fn agent_tool_call_updates_merge_by_id() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn agent_assistant_chunks_create_separate_blocks() -> anyhow::Result<()> {
+async fn agent_assistant_chunks_merge_into_one_block() -> anyhow::Result<()> {
     use helix_view::agent::AgentBlockKind;
 
     let mut app = AppBuilder::new().build()?;
@@ -449,15 +449,11 @@ async fn agent_assistant_chunks_create_separate_blocks() -> anyhow::Result<()> {
         }),
     );
 
-    assert_eq!(app.editor.agent.blocks.len(), 2);
-    assert!(matches!(
-        app.editor.agent.blocks[0].kind,
-        AgentBlockKind::Assistant { .. }
-    ));
-    assert!(matches!(
-        app.editor.agent.blocks[1].kind,
-        AgentBlockKind::Assistant { .. }
-    ));
+    assert_eq!(app.editor.agent.blocks.len(), 1);
+    let AgentBlockKind::Assistant { text } = &app.editor.agent.blocks[0].kind else {
+        panic!("expected assistant block");
+    };
+    assert_eq!(text, "firstsecond");
 
     Ok(())
 }
