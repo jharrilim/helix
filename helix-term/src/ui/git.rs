@@ -374,16 +374,6 @@ pub fn handle_mouse(editor: &mut Editor, event: MouseEvent) -> EventResult {
         if let Some(row) = row_at(&layout, editor.git.scroll, event.row) {
             if let Some(selection) = selection_from_row(row) {
                 editor.git.selection = Some(selection);
-                if selection.section == StagingSection::Unstaged {
-                    if let Some(entry) = editor.git.selected_entry() {
-                        let path = entry.change.path().to_path_buf();
-                        return EventResult::Consumed(Some(Box::new(
-                            move |_compositor, cx| {
-                                crate::commands::git::git_stage_path_from_compositor(cx, path);
-                            },
-                        )));
-                    }
-                }
             }
         }
         helix_event::request_redraw();

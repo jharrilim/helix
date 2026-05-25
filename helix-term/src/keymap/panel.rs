@@ -41,7 +41,8 @@ pub fn git_panel() -> KeyTrie {
     with_shared(keymap!({ "Git panel"
         "j" | "down" => git_panel_move_down,
         "k" | "up" => git_panel_move_up,
-        "o" | "ret" => git_open,
+        "o" => git_open,
+        "ret" => git_toggle_stage_selected,
         "d" => git_diff,
         "a" => git_stage_selected,
         "A" => git_stage_all,

@@ -13,7 +13,7 @@ use std::{
 mod git;
 
 #[cfg(feature = "git")]
-pub use git::{commit, file_diff, list_status, stage_all, stage_file};
+pub use git::{commit, file_diff, list_status, stage_all, stage_file, unstage_file};
 
 mod diff;
 
@@ -114,6 +114,18 @@ impl DiffProviderRegistry {
         });
     }
 
+    /// Unstage a single file in a background task.
+    pub fn unstage_file(
+        self,
+        cwd: PathBuf,
+        path: PathBuf,
+        f: impl FnOnce(Result<()>) + Send + 'static,
+    ) {
+        tokio::task::spawn_blocking(move || {
+            f(self.unstage_file_sync(&cwd, &path));
+        });
+    }
+
     /// Commit staged changes in a background task.
     pub fn commit(
         self,
@@ -151,6 +163,13 @@ impl DiffProviderRegistry {
         self.providers
             .iter()
             .find_map(|provider| provider.stage_all(cwd).ok())
+            .ok_or_else(|| anyhow!("no diff provider returns success"))
+    }
+
+    fn unstage_file_sync(&self, cwd: &Path, path: &Path) -> Result<()> {
+        self.providers
+            .iter()
+            .find_map(|provider| provider.unstage_file(cwd, path).ok())
             .ok_or_else(|| anyhow!("no diff provider returns success"))
     }
 
@@ -248,6 +267,14 @@ impl DiffProvider {
         match self {
             #[cfg(feature = "git")]
             Self::Git => git::stage_all(cwd),
+            Self::None => bail!("No diff support compiled in"),
+        }
+    }
+
+    fn unstage_file(&self, cwd: &Path, path: &Path) -> Result<()> {
+        match self {
+            #[cfg(feature = "git")]
+            Self::Git => git::unstage_file(cwd, path),
             Self::None => bail!("No diff support compiled in"),
         }
     }

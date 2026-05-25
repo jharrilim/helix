@@ -21,7 +21,7 @@ use crate::{FileChange, GitStatusEntry, StagingSection};
 
 mod ops;
 
-pub use ops::{commit, file_diff, stage_all, stage_file};
+pub use ops::{commit, file_diff, stage_all, stage_file, unstage_file};
 
 #[cfg(test)]
 mod test;

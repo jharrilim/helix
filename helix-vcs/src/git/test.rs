@@ -207,6 +207,27 @@ fn stage_and_commit() {
 }
 
 #[test]
+fn stage_and_unstage() {
+    let temp_git = empty_git_repo();
+    let file = temp_git.path().join("file.txt");
+    File::create(&file).unwrap().write_all(b"hello").unwrap();
+    create_commit(temp_git.path(), true);
+    File::create(&file).unwrap().write_all(b"world").unwrap();
+
+    git::stage_file(temp_git.path(), &file).unwrap();
+    assert!(git::list_status(temp_git.path())
+        .unwrap()
+        .iter()
+        .any(|e| matches!(e.section, crate::StagingSection::Staged)));
+
+    git::unstage_file(temp_git.path(), &file).unwrap();
+    assert!(git::list_status(temp_git.path())
+        .unwrap()
+        .iter()
+        .all(|e| matches!(e.section, crate::StagingSection::Unstaged)));
+}
+
+#[test]
 fn file_diff_untracked() {
     let temp_git = empty_git_repo();
     let file = temp_git.path().join("new.txt");

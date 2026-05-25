@@ -1158,8 +1158,6 @@ impl EditorView {
         matches!(key, key!(':'))
             || !self.keymaps.pending().is_empty()
             || self.keymaps.sticky().is_some()
-            || !self.panel_keymaps.pending().is_empty()
-            || self.panel_keymaps.sticky().is_some()
     }
 
     fn panel_keymap_passthrough_without_space(&self, key: KeyEvent) -> bool {
@@ -1611,6 +1609,10 @@ impl Component for EditorView {
                 let focused_kind = cx.editor.focused_leaf_kind();
                 let panel_leaf = focused_kind.filter(super::panel::is_auxiliary_panel);
                 if let Some(kind) = panel_leaf {
+                    if matches!(key, key!(':')) {
+                        self.panel_keymaps.reset();
+                    }
+
                     if super::panel::panel_input_focused(cx.editor, kind)
                         && !self.panel_keymap_passthrough_without_space(key)
                         && super::panel::handle_insert_key(cx.editor, kind, key)

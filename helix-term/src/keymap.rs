@@ -287,6 +287,11 @@ impl PanelKeymaps {
         self.sticky.as_ref()
     }
 
+    pub fn reset(&mut self) {
+        self.state.clear();
+        self.sticky = None;
+    }
+
     pub fn get(&mut self, kind: helix_view::tree::LeafKind, key: KeyEvent) -> KeymapResult {
         let Some(keymap) = self.map.get(&kind) else {
             return KeymapResult::NotFound;

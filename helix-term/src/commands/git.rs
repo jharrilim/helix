@@ -55,6 +55,29 @@ pub fn git_stage_selected(cx: &mut Context) {
     git_stage_path(cx, entry.change.path().to_path_buf());
 }
 
+pub fn git_unstage_selected(cx: &mut Context) {
+    let Some(entry) = cx.editor.git.selected_entry().cloned() else {
+        cx.editor.set_error("no git file selected");
+        return;
+    };
+    if entry.section != StagingSection::Staged {
+        return;
+    }
+    git_unstage_path(cx, entry.change.path().to_path_buf());
+}
+
+pub fn git_toggle_stage_selected(cx: &mut Context) {
+    let Some(entry) = cx.editor.git.selected_entry().cloned() else {
+        cx.editor.set_error("no git file selected");
+        return;
+    };
+    let path = entry.change.path().to_path_buf();
+    match entry.section {
+        StagingSection::Unstaged => git_stage_path(cx, path),
+        StagingSection::Staged => git_unstage_path(cx, path),
+    }
+}
+
 pub fn git_stage_path(cx: &mut Context, path: PathBuf) {
     let cwd = cx.editor.git_cwd();
     let providers = cx.editor.diff_providers.clone();
@@ -63,6 +86,22 @@ pub fn git_stage_path(cx: &mut Context, path: PathBuf) {
         job::dispatch_blocking(move |editor, _compositor| match result {
             Ok(()) => {
                 editor.set_status(format!("staged {}", path.display()));
+                refresh_open_document_diff_bases(editor, &path);
+                schedule_git_refresh(editor);
+            }
+            Err(err) => editor.set_git_error(format!("{err:#}")),
+        });
+    });
+}
+
+pub fn git_unstage_path(cx: &mut Context, path: PathBuf) {
+    let cwd = cx.editor.git_cwd();
+    let providers = cx.editor.diff_providers.clone();
+    cx.editor.git.loading = true;
+    providers.unstage_file(cwd, path.clone(), move |result| {
+        job::dispatch_blocking(move |editor, _compositor| match result {
+            Ok(()) => {
+                editor.set_status(format!("unstaged {}", path.display()));
                 refresh_open_document_diff_bases(editor, &path);
                 schedule_git_refresh(editor);
             }
@@ -211,22 +250,6 @@ pub fn git_stage_all_from_compositor(cx: &mut crate::compositor::Context) {
         job::dispatch_blocking(move |editor, _compositor| match result {
             Ok(()) => {
                 editor.set_status("staged all changes");
-                schedule_git_refresh(editor);
-            }
-            Err(err) => editor.set_git_error(format!("{err:#}")),
-        });
-    });
-}
-
-pub fn git_stage_path_from_compositor(cx: &mut crate::compositor::Context, path: PathBuf) {
-    let cwd = cx.editor.git_cwd();
-    let providers = cx.editor.diff_providers.clone();
-    cx.editor.git.loading = true;
-    providers.stage_file(cwd, path.clone(), move |result| {
-        job::dispatch_blocking(move |editor, _compositor| match result {
-            Ok(()) => {
-                editor.set_status(format!("staged {}", path.display()));
-                refresh_open_document_diff_bases(editor, &path);
                 schedule_git_refresh(editor);
             }
             Err(err) => editor.set_git_error(format!("{err:#}")),

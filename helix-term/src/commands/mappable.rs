@@ -359,6 +359,8 @@ impl MappableCommand {
         git_open, "Open selected git file",
         git_diff, "Diff selected git file",
         git_stage_selected, "Stage selected git file",
+        git_unstage_selected, "Unstage selected git file",
+        git_toggle_stage_selected, "Stage or unstage selected git file",
         git_stage_all, "Stage all git changes",
         git_commit_prompt, "Commit staged git changes",
         git_refresh, "Refresh git panel",

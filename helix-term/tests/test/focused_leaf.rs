@@ -2,7 +2,13 @@ use helix_core::diagnostic::Severity;
 use helix_term::application::Application;
 use helix_view::{tree::LeafKind, FocusTarget};
 
-use super::helpers::AppBuilder;
+use helix_view::input::parse_macro;
+use tokio_stream::wrappers::UnboundedReceiverStream;
+
+#[cfg(not(windows))]
+use termina::event::{Event, KeyEvent};
+
+use super::helpers::{run_event_loop_until_idle, AppBuilder};
 
 const DOCUMENT_VIEW_REQUIRED: &str = "command requires a document view";
 
@@ -119,6 +125,24 @@ async fn typed_quit_from_git_panel_closes_panel() -> anyhow::Result<()> {
     app.validate_typed_command("quit", "")?;
     assert!(app.editor.git.panel_id.is_none());
     assert!(!app.editor.is_err());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn git_panel_space_w_does_not_panic() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+    app.editor.open_git_panel();
+
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut rx_stream = UnboundedReceiverStream::new(rx);
+    for key_event in parse_macro("<space>w")? {
+        tx.send(Ok(Event::Key(KeyEvent::from(key_event))))?;
+    }
+    app.event_loop_until_idle(&mut rx_stream).await;
+
+    assert_eq!(app.editor.focused_leaf_kind(), Some(LeafKind::GitPanel));
+    app.editor.close_git_panel();
+    run_event_loop_until_idle(&mut app).await;
     Ok(())
 }
 

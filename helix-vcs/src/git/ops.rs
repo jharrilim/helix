@@ -45,6 +45,12 @@ pub fn stage_all(cwd: &Path) -> Result<()> {
     Ok(())
 }
 
+pub fn unstage_file(cwd: &Path, path: &Path) -> Result<()> {
+    let path = path.to_string_lossy();
+    exec_git(cwd, &["restore", "--staged", "--", path.as_ref()])?;
+    Ok(())
+}
+
 pub fn commit(cwd: &Path, message: &str) -> Result<()> {
     exec_git(cwd, &["commit", "-m", message])?;
     Ok(())
