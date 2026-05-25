@@ -1856,6 +1856,30 @@ mod test {
     }
 
     #[test]
+    fn resize_handle_at_git_panel_divider() {
+        let tree_area = Rect {
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 40,
+        };
+        let mut tree = Tree::new(tree_area);
+        tree.insert(View::new(DocumentId::default(), GutterConfig::default()));
+        let editor_id = tree.focus;
+        let panel_id = tree.split_git_panel(Layout::Vertical);
+        tree.focus = panel_id;
+
+        let editor_area = tree.get(editor_id).area;
+        let panel_area = tree.git_panel(panel_id).unwrap().area;
+        assert!(editor_area.right() < panel_area.x);
+
+        let divider = editor_area.right().saturating_sub(1);
+        let row = editor_area.y + editor_area.height / 2;
+        assert!(tree.resize_handle_at(row, divider).is_some());
+        assert!(tree.resize_handle_at(row, editor_area.right()).is_some());
+    }
+
+    #[test]
     fn swap_split_preserves_weights() {
         let mut tree = Tree::new(Rect {
             x: 0,

@@ -1320,6 +1320,21 @@ impl EditorView {
                 }
             }
             MouseEventKind::Drag(MouseButton::Left) => {
+                if self.split_resize.is_none() {
+                    if let Some((handle, axis)) =
+                        cxt.editor.tree.resize_handle_at(row, column)
+                    {
+                        let last_pos = match axis {
+                            ResizeAxis::Vertical => column,
+                            ResizeAxis::Horizontal => row,
+                        };
+                        self.split_resize = Some(SplitResizeDrag {
+                            handle,
+                            axis,
+                            last_pos,
+                        });
+                    }
+                }
                 if let Some(drag) = self.split_resize {
                     let delta = match drag.axis {
                         ResizeAxis::Vertical => column as i16 - drag.last_pos as i16,
@@ -1469,7 +1484,9 @@ impl EditorView {
             }
 
             MouseEventKind::Drag(MouseButton::Left) => {
-                let (view, doc) = current!(cxt.editor);
+                let Some((view, doc)) = helix_view::try_current!(cxt.editor) else {
+                    return EventResult::Ignored(None);
+                };
 
                 let pos = match view.pos_at_screen_coords(doc, row, column, true) {
                     Some(pos) => pos,
