@@ -328,6 +328,7 @@ async fn agent_permission_request_opens_picker() -> anyhow::Result<()> {
         &mut app.editor,
         AgentEvent::PermissionRequested {
             request_id: 1,
+            tool_call_id: Some("call-perm".into()),
             title: "Run shell command".into(),
             message: "agent wants to run `cargo test`".into(),
             options: vec![helix_acp::AgentPermissionOption {
@@ -340,6 +341,13 @@ async fn agent_permission_request_opens_picker() -> anyhow::Result<()> {
     assert!(
         app.editor.agent.pending_permission.is_some(),
         "expected pending permission state"
+    );
+    assert!(
+        app.editor
+            .agent
+            .permission_gated_tools
+            .contains("call-perm"),
+        "expected tool to await permission"
     );
     assert!(
         app.editor.agent.open_permission_picker,
@@ -375,6 +383,131 @@ async fn agent_debug_event_stores_line_without_transcript_entry() -> anyhow::Res
         app.editor.agent.blocks.is_empty(),
         "debug events should not append transcript entries"
     );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_shell_tool_output_withheld_until_permission_granted() -> anyhow::Result<()> {
+    use helix_view::agent::AgentBlockKind;
+
+    let mut app = AppBuilder::new().build()?;
+    open_agent_panel(&mut app);
+
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::Message(AgentMessage::ToolCall {
+            id: "call-git".into(),
+            title: "`git status`".into(),
+            status: "in_progress".into(),
+            detail: Some("On branch main".into()),
+            shell_command: Some("git status".into()),
+            terminal_id: None,
+        }),
+    );
+
+    let AgentBlockKind::Tool {
+        shell_output,
+        detail,
+        status,
+        ..
+    } = &app.editor.agent.blocks[0].kind
+    else {
+        panic!("expected tool block");
+    };
+    assert!(shell_output.is_empty(), "output should be withheld");
+    assert!(detail.is_none(), "detail should be withheld");
+    assert_eq!(status, "awaiting permission");
+
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::ToolCallUpdated {
+            id: "call-git".into(),
+            title: None,
+            status: Some("completed".into()),
+            detail: Some("modified: agent.rs".into()),
+            shell_command: None,
+            terminal_id: None,
+            agent_output: Some("modified: agent.rs".into()),
+        },
+    );
+
+    let AgentBlockKind::Tool { shell_output, .. } = &app.editor.agent.blocks[0].kind else {
+        panic!("expected tool block");
+    };
+    assert!(
+        shell_output.is_empty(),
+        "completed output should stay withheld until permission is granted"
+    );
+
+    helix_term::grant_tool_permission(&mut app.editor, Some("call-git"));
+
+    let AgentBlockKind::Tool { shell_output, .. } = &app.editor.agent.blocks[0].kind else {
+        panic!("expected tool block");
+    };
+    assert!(
+        shell_output.contains("modified: agent.rs"),
+        "output should appear after permission is granted"
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_permission_request_withholds_existing_tool_output() -> anyhow::Result<()> {
+    use helix_view::agent::AgentBlockKind;
+
+    let mut app = AppBuilder::new().build()?;
+    open_agent_panel(&mut app);
+
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::Message(AgentMessage::ToolCall {
+            id: "call-late".into(),
+            title: "Run command".into(),
+            status: "in_progress".into(),
+            detail: None,
+            shell_command: None,
+            terminal_id: None,
+        }),
+    );
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::ToolCallUpdated {
+            id: "call-late".into(),
+            title: None,
+            status: None,
+            detail: None,
+            shell_command: None,
+            terminal_id: None,
+            agent_output: Some("secret output".into()),
+        },
+    );
+
+    let AgentBlockKind::Tool { shell_output, .. } = &app.editor.agent.blocks[0].kind else {
+        panic!("expected tool block");
+    };
+    assert_eq!(shell_output, "secret output");
+
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::PermissionRequested {
+            request_id: 2,
+            tool_call_id: Some("call-late".into()),
+            title: "`git status`".into(),
+            message: "allow?".into(),
+            options: vec![helix_acp::AgentPermissionOption {
+                id: "allow-once".into(),
+                label: "Allow once".into(),
+            }],
+        },
+    );
+
+    let AgentBlockKind::Tool { shell_output, status, .. } = &app.editor.agent.blocks[0].kind else {
+        panic!("expected tool block");
+    };
+    assert!(shell_output.is_empty(), "output should be withheld retroactively");
+    assert_eq!(status, "awaiting permission");
 
     Ok(())
 }

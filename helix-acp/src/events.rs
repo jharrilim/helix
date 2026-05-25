@@ -116,6 +116,7 @@ pub enum AgentEvent {
     },
     PermissionRequested {
         request_id: u64,
+        tool_call_id: Option<String>,
         title: String,
         message: String,
         options: Vec<AgentPermissionOption>,

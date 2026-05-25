@@ -419,8 +419,10 @@ async fn run_runtime(
                                 label: option.name.clone(),
                             })
                             .collect();
+                        let tool_call_id = request.tool_call.tool_call_id.to_string();
                         let _ = events.send(AgentEvent::PermissionRequested {
                             request_id,
+                            tool_call_id: Some(tool_call_id),
                             title,
                             message,
                             options,

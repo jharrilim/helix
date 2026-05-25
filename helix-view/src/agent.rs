@@ -1,6 +1,6 @@
 //! Agent panel UI state stored on the editor.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -282,6 +282,12 @@ pub struct AgentState {
     pub shell_block_index: HashMap<String, usize>,
     /// Maps tool call ids to terminal ids for shell command tools.
     pub tool_shell_index: HashMap<String, String>,
+    /// Tool calls blocked from showing output or running locally until approved.
+    pub permission_gated_tools: HashSet<String>,
+    /// Tool calls the user has approved this session.
+    pub granted_tool_permissions: HashSet<String>,
+    /// Shell/output updates held until permission is granted.
+    pub deferred_tool_shell: HashMap<String, DeferredToolShell>,
     /// Monotonic counter for generating block ids.
     next_block_id: u64,
     /// Per-terminal output byte limits from ACP `terminal/create`.
@@ -299,9 +305,18 @@ pub struct AgentPermissionOption {
 #[derive(Debug, Clone)]
 pub struct AgentPendingPermission {
     pub request_id: u64,
+    pub tool_call_id: Option<String>,
     pub title: String,
     pub message: String,
     pub options: Vec<AgentPermissionOption>,
+}
+
+/// Shell execution deferred until the user approves a tool permission request.
+#[derive(Debug, Clone, Default)]
+pub struct DeferredToolShell {
+    pub shell_command: Option<String>,
+    pub terminal_id: Option<String>,
+    pub agent_output: Option<String>,
 }
 
 impl AgentState {
@@ -366,6 +381,117 @@ impl AgentState {
         self.shell_block_index.clear();
         self.shell_output_limits.clear();
         self.tool_shell_index.clear();
+        self.permission_gated_tools.clear();
+        self.granted_tool_permissions.clear();
+        self.deferred_tool_shell.clear();
+    }
+
+    pub fn tool_requires_permission(&self, tool_call_id: &str) -> bool {
+        self.permission_gated_tools.contains(tool_call_id)
+            && !self.granted_tool_permissions.contains(tool_call_id)
+    }
+
+    pub fn gate_tool_for_permission(&mut self, tool_call_id: &str) {
+        if self.granted_tool_permissions.contains(tool_call_id) {
+            return;
+        }
+        self.permission_gated_tools
+            .insert(tool_call_id.to_string());
+        self.withhold_tool_output(tool_call_id);
+        if let Some(index) = self.blocks.iter().position(|block| {
+            matches!(&block.kind, AgentBlockKind::Tool { id, .. } if id == tool_call_id)
+        }) {
+            if let AgentBlockKind::Tool { status, expanded, .. } = &mut self.blocks[index].kind {
+                if !self.granted_tool_permissions.contains(tool_call_id) {
+                    *status = "awaiting permission".into();
+                }
+                *expanded = true;
+            }
+        }
+    }
+
+    pub fn grant_tool_permission(&mut self, tool_call_id: &str) {
+        self.granted_tool_permissions
+            .insert(tool_call_id.to_string());
+        self.permission_gated_tools.remove(tool_call_id);
+    }
+
+    fn withhold_tool_output(&mut self, tool_call_id: &str) {
+        let Some(index) = self.blocks.iter().position(|block| {
+            matches!(&block.kind, AgentBlockKind::Tool { id, .. } if id == tool_call_id)
+        }) else {
+            return;
+        };
+        let AgentBlockKind::Tool {
+            detail,
+            shell_output,
+            ..
+        } = &mut self.blocks[index].kind
+        else {
+            return;
+        };
+
+        let mut withheld = std::mem::take(shell_output);
+        if let Some(detail_text) = detail.take() {
+            if !detail_text.is_empty() {
+                if !withheld.is_empty() {
+                    withheld.push_str("\n\n");
+                }
+                withheld.push_str(&detail_text);
+            }
+        }
+        if withheld.is_empty() {
+            return;
+        }
+
+        let entry = self
+            .deferred_tool_shell
+            .entry(tool_call_id.to_string())
+            .or_default();
+        match &mut entry.agent_output {
+            Some(existing) => {
+                if !existing.contains(withheld.as_str()) {
+                    existing.push_str("\n\n");
+                    existing.push_str(&withheld);
+                }
+            }
+            None => entry.agent_output = Some(withheld),
+        }
+    }
+
+    pub fn tool_permission_pending(&self, tool_call_id: &str) -> bool {
+        self.tool_requires_permission(tool_call_id)
+    }
+
+    pub fn defer_tool_shell(
+        &mut self,
+        tool_call_id: &str,
+        shell_command: Option<String>,
+        terminal_id: Option<String>,
+        agent_output: Option<String>,
+    ) {
+        let entry = self
+            .deferred_tool_shell
+            .entry(tool_call_id.to_string())
+            .or_default();
+        if shell_command.is_some() {
+            entry.shell_command = shell_command;
+        }
+        if terminal_id.is_some() {
+            entry.terminal_id = terminal_id;
+        }
+        if agent_output.is_some() {
+            entry.agent_output = agent_output;
+        }
+    }
+
+    pub fn take_deferred_tool_shell(&mut self, tool_call_id: &str) -> Option<DeferredToolShell> {
+        self.deferred_tool_shell.remove(tool_call_id)
+    }
+
+    pub fn clear_tool_permission_state(&mut self, tool_call_id: &str) {
+        self.permission_gated_tools.remove(tool_call_id);
+        self.deferred_tool_shell.remove(tool_call_id);
     }
 
     pub fn upsert_tool_call(
@@ -481,6 +607,10 @@ impl AgentState {
     }
 
     pub fn set_tool_shell_output(&mut self, tool_id: &str, output: String) {
+        if self.tool_requires_permission(tool_id) {
+            self.defer_tool_shell(tool_id, None, None, Some(output));
+            return;
+        }
         let Some(index) = self.blocks.iter().position(|block| {
             matches!(&block.kind, AgentBlockKind::Tool { id, .. } if id == tool_id)
         }) else {

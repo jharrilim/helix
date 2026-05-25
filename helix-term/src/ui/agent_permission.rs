@@ -6,8 +6,8 @@ use tui::widgets::Row;
 
 use crate::agent;
 use crate::compositor::Compositor;
-use crate::ui::{overlay::overlaid, menu::Item, Select};
-use crate::ui::prompt::PromptEvent;
+use crate::handlers::agent::{deny_tool_permission, grant_tool_permission};
+use crate::ui::{menu::Item, overlay::overlaid, prompt::PromptEvent, Select};
 
 #[derive(Clone)]
 struct PermissionPickerItem {
@@ -24,11 +24,12 @@ impl Item for PermissionPickerItem {
 }
 
 pub fn show_permission_picker(editor: &mut Editor, compositor: &mut Compositor) {
-    let Some(request) = editor.agent.pending_permission.take() else {
+    let Some(request) = editor.agent.pending_permission.clone() else {
         return;
     };
 
     if request.options.is_empty() {
+        editor.agent.pending_permission = None;
         respond_permission(request.request_id, None);
         editor.set_error("permission request had no options");
         return;
@@ -37,6 +38,7 @@ pub fn show_permission_picker(editor: &mut Editor, compositor: &mut Compositor) 
     let title = request.title;
     let message = request.message;
     let request_id = request.request_id;
+    let tool_call_id = request.tool_call_id;
     let options: Vec<PermissionPickerItem> = request
         .options
         .into_iter()
@@ -54,10 +56,14 @@ pub fn show_permission_picker(editor: &mut Editor, compositor: &mut Compositor) 
 
     let select = Select::new(prompt, options, (), move |editor, option, event| match event {
         PromptEvent::Validate => {
+            grant_tool_permission(editor, tool_call_id.as_deref());
+            editor.agent.pending_permission = None;
             respond_permission(request_id, Some(option.id.clone()));
             editor.set_status(format!("permission: {}", option.label));
         }
         PromptEvent::Abort => {
+            deny_tool_permission(editor, tool_call_id.as_deref());
+            editor.agent.pending_permission = None;
             respond_permission(request_id, None);
             editor.set_status("permission request cancelled");
         }
@@ -80,6 +86,7 @@ pub fn cancel_pending_permission(editor: &mut Editor) {
     let Some(request) = editor.agent.pending_permission.take() else {
         return;
     };
+    deny_tool_permission(editor, request.tool_call_id.as_deref());
     respond_permission(request.request_id, None);
     editor.agent.open_permission_picker = false;
 }

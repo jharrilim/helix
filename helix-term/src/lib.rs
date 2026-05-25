@@ -24,7 +24,7 @@ use futures_util::Future;
 mod handlers;
 
 #[cfg(feature = "integration")]
-pub use handlers::agent::apply_test_agent_event;
+pub use handlers::agent::{apply_test_agent_event, grant_tool_permission};
 
 use ignore::DirEntry;
 use url::Url;

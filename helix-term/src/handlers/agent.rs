@@ -322,12 +322,183 @@ fn handle_tool_shell(
     shell_command: Option<String>,
     terminal_id: Option<String>,
 ) {
+    if should_defer_tool_shell(editor, tool_id) {
+        editor
+            .agent
+            .defer_tool_shell(tool_id, shell_command, terminal_id, None);
+        return;
+    }
+    run_tool_shell(editor, tool_id, shell_command, terminal_id);
+}
+
+fn should_defer_tool_shell(editor: &Editor, tool_id: &str) -> bool {
+    if editor.agent_settings().auto_approve_permissions {
+        return false;
+    }
+    editor.agent.tool_permission_pending(tool_id)
+}
+
+fn is_shell_like_tool(shell_command: Option<&str>, title: &str) -> bool {
+    shell_command.is_some() || extract_shell_command_from_title(title).is_some()
+}
+
+fn extract_shell_command_from_title(title: &str) -> Option<String> {
+    let trimmed = title.trim();
+    if trimmed.starts_with('`') && trimmed.ends_with('`') && trimmed.len() > 2 {
+        Some(trimmed[1..trimmed.len() - 1].to_string())
+    } else {
+        None
+    }
+}
+
+fn maybe_gate_tool_for_permission(
+    editor: &mut Editor,
+    tool_id: &str,
+    shell_command: Option<&str>,
+    title: &str,
+) {
+    if editor.agent_settings().auto_approve_permissions {
+        return;
+    }
+    if is_shell_like_tool(shell_command, title) {
+        editor.agent.gate_tool_for_permission(tool_id);
+    }
+}
+
+fn apply_tool_call(
+    editor: &mut Editor,
+    id: &str,
+    title: Option<String>,
+    status: Option<String>,
+    detail: Option<String>,
+    shell_command: Option<String>,
+    terminal_id: Option<String>,
+    agent_output: Option<String>,
+    create: bool,
+) {
+    let title_for_gate = title.clone().or_else(|| {
+        editor.agent.blocks.iter().find_map(|block| match &block.kind {
+            AgentBlockKind::Tool {
+                id: existing,
+                title,
+                ..
+            } if existing == id => Some(title.clone()),
+            _ => None,
+        })
+    });
+    let title_for_gate = title_for_gate
+        .as_deref()
+        .unwrap_or("tool");
+    maybe_gate_tool_for_permission(
+        editor,
+        id,
+        shell_command.as_deref(),
+        title_for_gate,
+    );
+    let permission_pending = should_defer_tool_shell(editor, id);
+    let visible_detail = if permission_pending {
+        None
+    } else {
+        detail.clone()
+    };
+    let visible_output = if permission_pending {
+        None
+    } else {
+        agent_output.clone()
+    };
+    let visible_status = if permission_pending {
+        Some("awaiting permission".into())
+    } else {
+        status.clone()
+    };
+
+    if create {
+        editor.agent.upsert_tool_call(
+            id.to_string(),
+            title.unwrap_or_else(|| "tool".into()),
+            visible_status
+                .clone()
+                .unwrap_or_else(|| "pending".into()),
+            visible_detail,
+            terminal_id.clone(),
+        );
+    } else {
+        editor.agent.update_tool_call(
+            id,
+            title,
+            visible_status,
+            visible_detail,
+            terminal_id.clone(),
+            visible_output,
+        );
+    }
+
+    if permission_pending {
+        let mut deferred_output = agent_output;
+        if let Some(detail_text) = detail.filter(|text| !text.is_empty()) {
+            deferred_output = Some(match deferred_output {
+                Some(existing) => format!("{existing}\n\n{detail_text}"),
+                None => detail_text,
+            });
+        }
+        editor.agent.defer_tool_shell(
+            id,
+            shell_command,
+            terminal_id,
+            deferred_output,
+        );
+    } else {
+        handle_tool_shell(editor, id, shell_command, terminal_id);
+    }
+}
+
+fn run_tool_shell(
+    editor: &mut Editor,
+    tool_id: &str,
+    shell_command: Option<String>,
+    terminal_id: Option<String>,
+) {
     if let Some(terminal_id) = terminal_id {
         link_tool_to_existing_terminal(editor, tool_id, &terminal_id);
     }
     if let Some(command) = shell_command.filter(|command| !command.is_empty()) {
         try_run_tool_shell_command(editor, tool_id, &command);
     }
+}
+
+pub fn grant_tool_permission(editor: &mut Editor, tool_call_id: Option<&str>) {
+    let Some(tool_call_id) = tool_call_id else {
+        return;
+    };
+    editor.agent.grant_tool_permission(tool_call_id);
+    if let Some(deferred) = editor.agent.take_deferred_tool_shell(tool_call_id) {
+        run_tool_shell(
+            editor,
+            tool_call_id,
+            deferred.shell_command,
+            deferred.terminal_id,
+        );
+        if let Some(output) = deferred.agent_output.filter(|text| !text.is_empty()) {
+            editor
+                .agent
+                .update_tool_call(tool_call_id, None, None, None, None, Some(output));
+        }
+    }
+}
+
+pub fn deny_tool_permission(editor: &mut Editor, tool_call_id: Option<&str>) {
+    let Some(tool_call_id) = tool_call_id else {
+        return;
+    };
+    editor.agent.clear_tool_permission_state(tool_call_id);
+    editor.agent.update_tool_call(
+        tool_call_id,
+        None,
+        Some("permission denied".into()),
+        None,
+        None,
+        None,
+    );
 }
 
 fn terminal_output_impl(
@@ -668,6 +839,9 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
             editor.agent.cursor_request = None;
             editor.agent.cursor_question_flow = None;
             editor.agent.pending_permission = None;
+            editor.agent.permission_gated_tools.clear();
+            editor.agent.granted_tool_permissions.clear();
+            editor.agent.deferred_tool_shell.clear();
             editor.agent.status = Some("agent session closed".into());
         }
         AgentEvent::Authenticated { method_id } => {
@@ -755,7 +929,7 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
         AgentEvent::Message(msg) => {
             editor.agent.pending = false;
             editor.agent.load_replay_count = editor.agent.load_replay_count.saturating_add(1);
-            match msg {
+            match msg.clone() {
                 AgentMessage::ToolCall {
                     id,
                     title,
@@ -764,18 +938,16 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
                     shell_command,
                     terminal_id,
                 } => {
-                    editor.agent.upsert_tool_call(
-                        id.clone(),
-                        title.clone(),
-                        status.clone(),
-                        detail.clone(),
-                        terminal_id.clone(),
-                    );
-                    handle_tool_shell(
+                    apply_tool_call(
                         editor,
                         &id,
-                        shell_command.clone(),
-                        terminal_id.clone(),
+                        Some(title),
+                        Some(status),
+                        detail,
+                        shell_command,
+                        terminal_id,
+                        None,
+                        true,
                     );
                 }
                 _ => {
@@ -794,15 +966,17 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
             terminal_id,
             agent_output,
         } => {
-            editor.agent.update_tool_call(
+            apply_tool_call(
+                editor,
                 id,
                 title.clone(),
                 status.clone(),
                 detail.clone(),
+                shell_command.clone(),
                 terminal_id.clone(),
                 agent_output.clone(),
+                false,
             );
-            handle_tool_shell(editor, id, shell_command.clone(), terminal_id.clone());
         }
         AgentEvent::TurnStarted => {
             editor.agent.pending = true;
@@ -842,12 +1016,17 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
         }
         AgentEvent::PermissionRequested {
             request_id,
+            tool_call_id,
             title,
             message,
             options,
         } => {
+            if let Some(tool_call_id) = tool_call_id.as_deref() {
+                editor.agent.gate_tool_for_permission(tool_call_id);
+            }
             editor.agent.pending_permission = Some(AgentPendingPermission {
                 request_id: *request_id,
+                tool_call_id: tool_call_id.clone(),
                 title: title.clone(),
                 message: message.clone(),
                 options: options
