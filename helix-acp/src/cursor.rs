@@ -112,9 +112,11 @@ pub struct CursorAskQuestionResponse {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "outcome", rename_all = "camelCase")]
 pub enum CursorAskQuestionOutcome {
+    #[serde(rename_all = "camelCase")]
     Answered {
         answers: Vec<CursorQuestionAnswer>,
     },
+    #[serde(rename_all = "camelCase")]
     Skipped {
         #[serde(skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
@@ -167,10 +169,12 @@ pub struct CursorCreatePlanResponse {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "outcome", rename_all = "camelCase")]
 pub enum CursorCreatePlanOutcome {
+    #[serde(rename_all = "camelCase")]
     Accepted {
         #[serde(skip_serializing_if = "Option::is_none")]
         plan_uri: Option<String>,
     },
+    #[serde(rename_all = "camelCase")]
     Rejected {
         #[serde(skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
@@ -206,4 +210,27 @@ pub struct CursorGenerateImageRequest {
     pub file_path: Option<String>,
     #[serde(default)]
     pub reference_image_paths: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_plan_response_serializes_cursor_shape() {
+        let response = CursorCreatePlanResponse {
+            outcome: CursorCreatePlanOutcome::Accepted {
+                plan_uri: Some("file:///tmp/plan.md".into()),
+            },
+        };
+        let value = serde_json::to_value(response).unwrap();
+        assert_eq!(value["outcome"]["outcome"], "accepted");
+        assert_eq!(value["outcome"]["planUri"], "file:///tmp/plan.md");
+
+        let cancelled = CursorCreatePlanResponse {
+            outcome: CursorCreatePlanOutcome::Cancelled,
+        };
+        let value = serde_json::to_value(cancelled).unwrap();
+        assert_eq!(value["outcome"]["outcome"], "cancelled");
+    }
 }

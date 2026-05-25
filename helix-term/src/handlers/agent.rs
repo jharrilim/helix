@@ -769,6 +769,77 @@ pub fn ensure_session(controller: &AgentController, editor: &mut Editor) {
     editor.agent.pending = true;
 }
 
+/// Writes an accepted plan to `.cursor/plans/` and returns a `file://` URI for the agent.
+pub fn write_accepted_plan(
+    editor: &Editor,
+    plan_name: Option<&str>,
+    tool_call_id: &str,
+    content: &str,
+) -> Option<String> {
+    let cwd = editor
+        .last_cwd
+        .clone()
+        .or_else(|| std::env::current_dir().ok())?;
+    let plans_dir = cwd.join(".cursor").join("plans");
+    std::fs::create_dir_all(&plans_dir).ok()?;
+    let filename = plan_filename(plan_name, tool_call_id);
+    let path = plans_dir.join(filename);
+    std::fs::write(&path, content).ok()?;
+    Some(plan_file_uri(&path))
+}
+
+fn plan_filename(plan_name: Option<&str>, tool_call_id: &str) -> String {
+    let base = plan_name
+        .map(slugify_plan_name)
+        .filter(|slug| !slug.is_empty())
+        .unwrap_or_else(|| format!("plan-{tool_call_id}"));
+    format!("{base}.md")
+}
+
+fn slugify_plan_name(name: &str) -> String {
+    let mut slug = String::new();
+    let mut last_dash = false;
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash && !slug.is_empty() {
+            slug.push('-');
+            last_dash = true;
+        }
+    }
+    slug.trim_end_matches('-').to_string()
+}
+
+fn plan_file_uri(path: &std::path::Path) -> String {
+    format!("file://{}", path.display())
+}
+
+fn continue_implementing_plan(editor: &mut Editor) {
+    let switch_to_agent = editor.agent.mode.as_deref() != Some("agent")
+        && editor
+            .agent
+            .available_modes
+            .iter()
+            .any(|mode| mode.id == "agent");
+    crate::agent::with_controller(|controller| {
+        if switch_to_agent {
+            controller.send(helix_acp::AgentCommand::SetMode {
+                mode_id: "agent".into(),
+            });
+            editor.agent.mode = Some("agent".into());
+        }
+        send_prompt(
+            controller,
+            editor,
+            "Implement the approved plan.".into(),
+        );
+    });
+    editor.agent.push_block(AgentBlockKind::System {
+        text: "Continuing to implement the accepted plan.".into(),
+    });
+}
+
 pub fn send_prompt(controller: &AgentController, editor: &mut Editor, text: String) {
     if text.is_empty() {
         return;
@@ -850,6 +921,7 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
             editor.agent.active_session = None;
             editor.agent.mode = None;
             editor.agent.pending = false;
+            editor.agent.continue_after_plan_accept = false;
             editor.agent.cursor_request = None;
             editor.agent.cursor_question_flow = None;
             editor.agent.pending_permission = None;
@@ -998,6 +1070,14 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
         AgentEvent::TurnFinished { stop_reason } => {
             editor.agent.pending = false;
             editor.agent.status = stop_reason.clone();
+            if editor.agent.continue_after_plan_accept
+                && stop_reason
+                    .as_deref()
+                    .is_some_and(|reason| reason.contains("EndTurn"))
+            {
+                editor.agent.continue_after_plan_accept = false;
+                continue_implementing_plan(editor);
+            }
         }
         AgentEvent::TurnCancelled => {
             editor.agent.pending = false;
@@ -1273,5 +1353,14 @@ mod tests {
         })
         .unwrap();
         assert!(matches!(kind, AgentBlockKind::User { .. }));
+    }
+
+    #[test]
+    fn plan_filename_slugifies_names() {
+        assert_eq!(
+            plan_filename(Some("Refactor Tabs"), "call-1"),
+            "refactor-tabs.md"
+        );
+        assert_eq!(plan_filename(None, "call-2"), "plan-call-2.md");
     }
 }

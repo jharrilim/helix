@@ -626,6 +626,55 @@ async fn agent_assistant_chunks_merge_into_one_block() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn plan_accept_in_plan_mode_continues_after_end_turn() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+
+    open_agent_panel(&mut app);
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::SessionStarted {
+            session_id: session_id("session-plan"),
+        },
+    );
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::ModeUpdated {
+            current_mode: "plan".into(),
+            available_modes: vec![helix_acp::AgentModeInfo {
+                id: "agent".into(),
+                name: "Agent".into(),
+                description: None,
+            }],
+        },
+    );
+    app.editor.agent.continue_after_plan_accept = true;
+
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::TurnFinished {
+            stop_reason: Some("EndTurn".into()),
+        },
+    );
+
+    assert!(!app.editor.agent.continue_after_plan_accept);
+    assert_eq!(app.editor.agent.mode.as_deref(), Some("agent"));
+    assert!(
+        app.editor
+            .agent
+            .blocks
+            .iter()
+            .any(|block| matches!(
+                &block.kind,
+                helix_view::agent::AgentBlockKind::System { text }
+                    if text.contains("Continuing to implement")
+            )),
+        "expected continuation system message"
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn agent_session_closed_clears_active_session() -> anyhow::Result<()> {
     let mut app = AppBuilder::new().build()?;
 

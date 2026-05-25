@@ -264,6 +264,8 @@ pub struct AgentState {
     pub available_modes: Vec<AgentModeMeta>,
     /// When true, show the agent mode infobox and accept mode selection keys.
     pub mode_menu_active: bool,
+    /// After accepting a plan in a read-only mode, continue in agent mode when the turn ends.
+    pub continue_after_plan_accept: bool,
     /// Blocking Cursor extension request awaiting UI response.
     pub cursor_request: Option<AgentCursorRequest>,
     /// When true, show the Cursor extension UI on the next event dispatch.

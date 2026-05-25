@@ -194,6 +194,7 @@ fn show_create_plan(
     };
 
     let plan_name = request.name.clone();
+    let tool_call_id = request.tool_call_id.clone();
     let mut body = String::new();
     if let Some(name) = &plan_name {
         body.push_str(&format!("# {name}\n\n"));
@@ -210,6 +211,7 @@ fn show_create_plan(
     }
 
     let plan_name_for_accept = plan_name.clone();
+    let plan_body_for_accept = body.clone();
     let markdown = Markdown::new(body, editor.syn_loader.clone());
     compositor.push(Box::new(overlaid(
         Popup::new("agent-plan-review", markdown).auto_close(true),
@@ -221,24 +223,43 @@ fn show_create_plan(
         vec![
             PlanChoice {
                 label: "Accept plan",
-                outcome: CursorCreatePlanOutcome::Accepted { plan_uri: None },
+                accepted: true,
             },
             PlanChoice {
                 label: "Reject plan",
-                outcome: CursorCreatePlanOutcome::Rejected {
-                    reason: Some("rejected by user".into()),
-                },
+                accepted: false,
             },
             PlanChoice {
                 label: "Cancel",
-                outcome: CursorCreatePlanOutcome::Cancelled,
+                accepted: false,
             },
         ],
         (),
         move |editor, choice, event| match event {
             PromptEvent::Validate => {
-                let response = CursorCreatePlanResponse {
-                    outcome: choice.outcome.clone(),
+                let response = if choice.accepted {
+                    let plan_uri = crate::handlers::agent::write_accepted_plan(
+                        editor,
+                        plan_name_for_accept.as_deref(),
+                        &tool_call_id,
+                        &plan_body_for_accept,
+                    );
+                    if editor.agent.mode.as_deref() != Some("agent") {
+                        editor.agent.continue_after_plan_accept = true;
+                    }
+                    CursorCreatePlanResponse {
+                        outcome: CursorCreatePlanOutcome::Accepted { plan_uri },
+                    }
+                } else if choice.label == "Reject plan" {
+                    CursorCreatePlanResponse {
+                        outcome: CursorCreatePlanOutcome::Rejected {
+                            reason: Some("rejected by user".into()),
+                        },
+                    }
+                } else {
+                    CursorCreatePlanResponse {
+                        outcome: CursorCreatePlanOutcome::Cancelled,
+                    }
                 };
                 respond_cursor(
                     request_id_copy,
@@ -246,7 +267,7 @@ fn show_create_plan(
                         json!({ "outcome": { "outcome": "cancelled" } })
                     }),
                 );
-                if matches!(choice.outcome, CursorCreatePlanOutcome::Accepted { .. }) {
+                if choice.accepted {
                     let label = plan_name_for_accept
                         .as_ref()
                         .map(|name| format!("Plan accepted: {name}"))
@@ -294,7 +315,7 @@ impl Item for QuestionPickerItem {
 #[derive(Clone)]
 struct PlanChoice {
     label: &'static str,
-    outcome: CursorCreatePlanOutcome,
+    accepted: bool,
 }
 
 impl Item for PlanChoice {
