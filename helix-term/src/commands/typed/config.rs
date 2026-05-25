@@ -1,7 +1,7 @@
 use std::ops::Deref;
 use super::super::prelude::*;
 use helix_core::command_line::{self, Args};
-use helix_view::editor::ConfigEvent;
+use helix_view::{editor::ConfigEvent, theme};
 use serde_json::Value;
 pub(crate) fn theme(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
     let true_color = cx.editor.config.load().true_color || crate::true_color();
@@ -33,6 +33,21 @@ pub(crate) fn theme(cx: &mut compositor::Context, args: Args, event: PromptEvent
                     bail!("Unsupported theme: theme requires true color support");
                 }
                 cx.editor.set_theme(theme)?;
+
+                let config_path = helix_loader::config_file();
+                match theme::Config::save_selection(&config_path, theme_name, None) {
+                    Ok(theme_config) => {
+                        cx.editor
+                            .config_events
+                            .0
+                            .send(ConfigEvent::SetTheme(theme_config))?;
+                    }
+                    Err(err) => {
+                        cx.editor.set_error(format!(
+                            "Theme applied but failed to save to config: {err}"
+                        ));
+                    }
+                }
             } else {
                 let name = cx.editor.theme.name().to_string();
 

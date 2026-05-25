@@ -464,6 +464,12 @@ impl Application {
                 );
                 return;
             }
+            ConfigEvent::SetTheme(theme_config) => {
+                let mut app_config = (*self.config.load().clone()).clone();
+                app_config.theme = Some(theme_config);
+                self.config.store(Arc::new(app_config));
+                return;
+            }
         }
 
         // Update all the relevant members in the editor after updating

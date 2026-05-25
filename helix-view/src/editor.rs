@@ -169,6 +169,7 @@ pub enum ConfigEvent {
     Refresh,
     Update(Box<Config>),
     ThemeChanged,
+    SetTheme(crate::theme::Config),
 }
 
 #[derive(Debug, Clone)]

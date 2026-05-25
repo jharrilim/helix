@@ -68,6 +68,115 @@ impl Config {
             None => self.fallback.as_ref().unwrap_or(&self.dark),
         }
     }
+
+    pub fn constant(theme: impl Into<String>) -> Self {
+        let theme = theme.into();
+        Self {
+            light: theme.clone(),
+            dark: theme,
+            fallback: None,
+        }
+    }
+
+    /// Returns a copy of this config with `theme_name` applied for the given terminal mode.
+    ///
+    /// Constant configs are replaced entirely. Adaptive configs update the field matching
+    /// `mode`, or `fallback`/`dark` when the terminal did not declare a mode.
+    pub fn with_selected(&self, theme_name: impl Into<String>, mode: Option<Mode>) -> Self {
+        let theme_name = theme_name.into();
+        if self.is_constant() {
+            return Self::constant(theme_name);
+        }
+
+        match mode {
+            Some(Mode::Dark) => Self {
+                dark: theme_name,
+                ..self.clone()
+            },
+            Some(Mode::Light) => Self {
+                light: theme_name,
+                ..self.clone()
+            },
+            None if self.fallback.is_some() => Self {
+                fallback: Some(theme_name),
+                ..self.clone()
+            },
+            None => Self {
+                dark: theme_name,
+                ..self.clone()
+            },
+        }
+    }
+
+    fn is_constant(&self) -> bool {
+        self.light == self.dark && self.fallback.is_none()
+    }
+
+    fn to_toml_value(&self) -> Value {
+        if self.is_constant() {
+            Value::String(self.dark.clone())
+        } else {
+            let mut table = Map::new();
+            table.insert("dark".into(), Value::String(self.dark.clone()));
+            table.insert("light".into(), Value::String(self.light.clone()));
+            if let Some(fallback) = &self.fallback {
+                table.insert("fallback".into(), Value::String(fallback.clone()));
+            }
+            Value::Table(table)
+        }
+    }
+
+    fn from_toml_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::String(theme) => Some(Self::constant(theme.clone())),
+            Value::Table(table) => {
+                let dark = table.get("dark")?.as_str()?.to_string();
+                let light = table.get("light")?.as_str()?.to_string();
+                let fallback = table
+                    .get("fallback")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_owned);
+                Some(Self {
+                    light,
+                    dark,
+                    fallback,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    pub fn load_from_file(path: &Path) -> Result<Option<Self>> {
+        if !path.exists() {
+            return Ok(None);
+        }
+        let contents = std::fs::read_to_string(path)?;
+        let root: Value = toml::from_str(&contents)?;
+        Ok(root.get("theme").and_then(Self::from_toml_value))
+    }
+
+    /// Write the selected theme to a config file, preserving other keys.
+    pub fn save_selection(path: &Path, theme_name: &str, mode: Option<Mode>) -> Result<Self> {
+        let updated = Self::load_from_file(path)?
+            .map(|config| config.with_selected(theme_name, mode))
+            .unwrap_or_else(|| Self::constant(theme_name));
+
+        let mut root: Value = if path.exists() {
+            toml::from_str(&std::fs::read_to_string(path)?)?
+        } else {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            Value::Table(Map::new())
+        };
+
+        let Value::Table(ref mut table) = root else {
+            return Err(anyhow!("config file root must be a table"));
+        };
+        table.insert("theme".into(), updated.to_toml_value());
+        std::fs::write(path, toml::to_string_pretty(&root)?)?;
+        Ok(updated)
+    }
 }
 
 impl<'de> Deserialize<'de> for Config {
@@ -774,5 +883,32 @@ mod tests {
     fn out_of_bounds() {
         let highlight = Highlight::new(Theme::rgb_highlight(0, 0, 0).get() - 1);
         Theme::default().highlight(highlight);
+    }
+
+    #[test]
+    fn config_constant_serializes_as_string() {
+        let config = Config::constant("onedark");
+        assert_eq!(
+            config.to_toml_value(),
+            Value::String("onedark".into())
+        );
+    }
+
+    #[test]
+    fn config_with_selected_preserves_adaptive_fields() {
+        let config = Config {
+            light: "one_light".into(),
+            dark: "onedark".into(),
+            fallback: Some("gruvbox".into()),
+        };
+
+        let updated = config.with_selected("tokyonight", Some(Mode::Dark));
+        assert_eq!(updated.dark, "tokyonight");
+        assert_eq!(updated.light, "one_light");
+        assert_eq!(updated.fallback.as_deref(), Some("gruvbox"));
+
+        let updated = config.with_selected("tokyonight", Some(Mode::Light));
+        assert_eq!(updated.light, "tokyonight");
+        assert_eq!(updated.dark, "onedark");
     }
 }
