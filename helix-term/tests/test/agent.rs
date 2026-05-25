@@ -358,6 +358,40 @@ async fn agent_permission_request_opens_picker() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn agent_permission_grant_restores_insert_focus() -> anyhow::Result<()> {
+    use helix_view::agent::AgentFocus;
+
+    let mut app = AppBuilder::new().build()?;
+    open_agent_panel(&mut app);
+    app.editor.agent.focus = AgentFocus::Normal;
+
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::PermissionRequested {
+            request_id: 1,
+            tool_call_id: Some("call-perm".into()),
+            title: "Run shell command".into(),
+            message: "agent wants to run `cargo test`".into(),
+            options: vec![helix_acp::AgentPermissionOption {
+                id: "allow-once".into(),
+                label: "Allow once".into(),
+            }],
+        },
+    );
+
+    helix_term::grant_tool_permission(&mut app.editor, Some("call-perm"));
+    helix_term::ui::agent_permission::restore_input_focus_after_permission(&mut app.editor);
+
+    assert_eq!(
+        app.editor.agent.focus,
+        AgentFocus::Insert,
+        "agent input should return to insert mode after permission is resolved"
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn agent_debug_event_stores_line_without_transcript_entry() -> anyhow::Result<()> {
     let mut app = AppBuilder::new().build()?;
 

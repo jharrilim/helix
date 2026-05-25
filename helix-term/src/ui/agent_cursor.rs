@@ -298,10 +298,7 @@ fn show_create_plan(
 
 fn respond_cursor(request_id: u64, result: Value) {
     agent::with_controller(|controller| {
-        controller.send(helix_acp::AgentCommand::RespondCursor {
-            request_id,
-            result,
-        });
+        controller.respond_cursor(request_id, result);
     });
 }
 

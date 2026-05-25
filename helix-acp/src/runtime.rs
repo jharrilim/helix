@@ -77,15 +77,38 @@ impl Default for AgentConfig {
     }
 }
 
+type CursorResponder = oneshot::Sender<Value>;
+type PermissionResponder = oneshot::Sender<Option<String>>;
+
 /// Handle for sending commands to a running agent runtime.
 #[derive(Clone)]
 pub struct AgentRuntimeHandle {
     cmd_tx: UnboundedSender<AgentCommand>,
+    pending_permission: Arc<Mutex<HashMap<u64, PermissionResponder>>>,
+    pending_cursor: Arc<Mutex<HashMap<u64, CursorResponder>>>,
 }
 
 impl AgentRuntimeHandle {
     pub fn send(&self, cmd: AgentCommand) {
         let _ = self.cmd_tx.send(cmd);
+    }
+
+    /// Respond to a permission request without going through the command loop.
+    ///
+    /// This must not use the command channel because `SendPrompt` blocks that loop
+    /// until the active turn completes, which would deadlock in-flight permission
+    /// requests that arrive during a prompt.
+    pub fn respond_permission(&self, request_id: u64, option_id: Option<String>) {
+        if let Some(tx) = self.pending_permission.lock().remove(&request_id) {
+            let _ = tx.send(option_id);
+        }
+    }
+
+    /// Respond to a blocking cursor extension request without using the command loop.
+    pub fn respond_cursor(&self, request_id: u64, result: Value) {
+        if let Some(tx) = self.pending_cursor.lock().remove(&request_id) {
+            let _ = tx.send(result);
+        }
     }
 }
 
@@ -105,6 +128,15 @@ impl AgentRuntime {
     ) -> (AgentRuntimeHandle, UnboundedReceiver<AgentEvent>) {
         let (events_tx, events_rx) = unbounded_channel();
         let (cmd_tx, cmd_rx) = unbounded_channel();
+        let pending_permission: Arc<Mutex<HashMap<u64, PermissionResponder>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let pending_cursor: Arc<Mutex<HashMap<u64, CursorResponder>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let handle = AgentRuntimeHandle {
+            cmd_tx,
+            pending_permission: pending_permission.clone(),
+            pending_cursor: pending_cursor.clone(),
+        };
 
         tokio::task::spawn(async move {
             if let Err(err) = run_runtime(
@@ -118,6 +150,8 @@ impl AgentRuntime {
                 terminal_release,
                 events_tx.clone(),
                 cmd_rx,
+                pending_permission,
+                pending_cursor,
             )
             .await
             {
@@ -127,12 +161,9 @@ impl AgentRuntime {
             }
         });
 
-        (AgentRuntimeHandle { cmd_tx }, events_rx)
+        (handle, events_rx)
     }
 }
-
-type CursorResponder = oneshot::Sender<Value>;
-type PermissionResponder = oneshot::Sender<Option<String>>;
 
 async fn run_runtime(
     config: AgentConfig,
@@ -145,6 +176,8 @@ async fn run_runtime(
     terminal_release: TerminalReleaseFn,
     events_tx: UnboundedSender<AgentEvent>,
     mut cmd_rx: UnboundedReceiver<AgentCommand>,
+    pending_permission: Arc<Mutex<HashMap<u64, PermissionResponder>>>,
+    pending_cursor: Arc<Mutex<HashMap<u64, CursorResponder>>>,
 ) -> anyhow::Result<()> {
     if config.command.is_empty() {
         return Err(anyhow!("agent command is not configured"));
@@ -164,10 +197,7 @@ async fn run_runtime(
     let terminal_wait_exit_cb = terminal_wait_exit.clone();
     let terminal_kill_cb = terminal_kill.clone();
     let terminal_release_cb = terminal_release.clone();
-    let pending_cursor: Arc<Mutex<HashMap<u64, CursorResponder>>> = Arc::new(Mutex::new(HashMap::new()));
     let next_cursor_id: Arc<Mutex<u64>> = Arc::new(Mutex::new(0));
-    let pending_permission: Arc<Mutex<HashMap<u64, PermissionResponder>>> =
-        Arc::new(Mutex::new(HashMap::new()));
     let next_permission_id: Arc<Mutex<u64>> = Arc::new(Mutex::new(0));
 
     acp::Client
@@ -505,8 +535,6 @@ async fn run_runtime(
         .connect_with(agent, move |connection: acp::ConnectionTo<acp::Agent>| {
             let events_tx = events_tx.clone();
             let config = config.clone();
-            let pending_cursor = pending_cursor.clone();
-            let pending_permission = pending_permission.clone();
             let debug_logging = debug_logging;
             async move {
                 let capabilities = ClientCapabilities::new()
@@ -686,19 +714,6 @@ async fn run_runtime(
                                 let _ = events_tx.send(AgentEvent::Status {
                                     text: format!("agent mode set to {mode_id}"),
                                 });
-                            }
-                        }
-                        AgentCommand::RespondPermission {
-                            request_id,
-                            option_id,
-                        } => {
-                            if let Some(tx) = pending_permission.lock().remove(&request_id) {
-                                let _ = tx.send(option_id);
-                            }
-                        }
-                        AgentCommand::RespondCursor { request_id, result } => {
-                            if let Some(tx) = pending_cursor.lock().remove(&request_id) {
-                                let _ = tx.send(result);
                             }
                         }
                     }

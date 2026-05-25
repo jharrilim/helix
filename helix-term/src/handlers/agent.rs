@@ -687,6 +687,18 @@ impl AgentController {
         }
     }
 
+    pub fn respond_permission(&self, request_id: u64, option_id: Option<String>) {
+        if let Some(handle) = &self.runtime {
+            handle.respond_permission(request_id, option_id);
+        }
+    }
+
+    pub fn respond_cursor(&self, request_id: u64, result: serde_json::Value) {
+        if let Some(handle) = &self.runtime {
+            handle.respond_cursor(request_id, result);
+        }
+    }
+
     pub fn poll(&mut self, editor: &mut Editor) {
         if let Some(bridge) = self.fs_bridge.as_mut() {
             bridge.poll(editor);
@@ -775,8 +787,10 @@ pub fn send_prompt(controller: &AgentController, editor: &mut Editor, text: Stri
     editor.agent.input.clear();
     editor.agent.input_cursor = 0;
     editor.agent.pending = true;
+    editor.agent.status = None;
     let context = gather_prompt_context(editor);
     controller.send(AgentCommand::SendPrompt { text, context });
+    helix_event::request_redraw();
 }
 
 pub fn gather_prompt_context(editor: &Editor) -> Option<helix_acp::AgentPromptContext> {
@@ -927,7 +941,6 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
             apply_active_session_info_update(editor, title.clone(), updated_at.clone());
         }
         AgentEvent::Message(msg) => {
-            editor.agent.pending = false;
             editor.agent.load_replay_count = editor.agent.load_replay_count.saturating_add(1);
             match msg.clone() {
                 AgentMessage::ToolCall {
@@ -980,6 +993,7 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
         }
         AgentEvent::TurnStarted => {
             editor.agent.pending = true;
+            editor.agent.status = None;
         }
         AgentEvent::TurnFinished { stop_reason } => {
             editor.agent.pending = false;
@@ -1021,6 +1035,13 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
             message,
             options,
         } => {
+            if let Some(previous) = editor.agent.pending_permission.take() {
+                crate::ui::agent_permission::cancel_superseded_permission(
+                    editor,
+                    previous.request_id,
+                    previous.tool_call_id.as_deref(),
+                );
+            }
             if let Some(tool_call_id) = tool_call_id.as_deref() {
                 editor.agent.gate_tool_for_permission(tool_call_id);
             }

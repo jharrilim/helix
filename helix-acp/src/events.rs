@@ -159,12 +159,4 @@ pub enum AgentCommand {
     SetMode {
         mode_id: String,
     },
-    RespondPermission {
-        request_id: u64,
-        option_id: Option<String>,
-    },
-    RespondCursor {
-        request_id: u64,
-        result: Value,
-    },
 }
