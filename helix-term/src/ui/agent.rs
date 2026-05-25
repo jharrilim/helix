@@ -120,11 +120,9 @@ pub fn handle_mouse(editor: &mut Editor, event: MouseEvent) -> EventResult {
         MouseEventKind::Down(MouseButton::Left) => {
             if contains_coords(input, event.row, event.column) {
                 editor.agent.focus = AgentFocus::Insert;
-                editor.mode = helix_view::document::Mode::Insert;
                 editor.agent.clear_transcript_selection();
             } else if contains_coords(transcript_area, event.row, event.column) {
                 editor.agent.focus = AgentFocus::Normal;
-                editor.mode = helix_view::document::Mode::Normal;
                 if let Some(point) =
                     point_from_mouse(transcript_area, event.row, event.column, &layout)
                 {
@@ -426,8 +424,8 @@ pub fn render(editor: &Editor, area: Rect, surface: &mut Surface, focused: bool)
             session,
             status,
             match editor.agent.focus {
-                AgentFocus::Insert => "INSERT",
-                AgentFocus::Normal => "NORMAL",
+                AgentFocus::Insert => "INS",
+                AgentFocus::Normal => "NOR",
             }
         )
     } else {
@@ -437,8 +435,8 @@ pub fn render(editor: &Editor, area: Rect, surface: &mut Surface, focused: bool)
             mode,
             status,
             match editor.agent.focus {
-                AgentFocus::Insert => "INSERT",
-                AgentFocus::Normal => "NORMAL",
+                AgentFocus::Insert => "INS",
+                AgentFocus::Normal => "NOR",
             }
         )
     };
@@ -1031,12 +1029,12 @@ fn render_status_bar(
 
     let hint = if panel_focused && editor.agent.focus == AgentFocus::Insert {
         if editor.agent.pending {
-            " INSERT · Enter send · Esc normal · drag select "
+            " INS · Enter send · Esc normal · drag select "
         } else {
-            " INSERT · Enter send · Esc normal · ↑↓ history "
+            " INS · Enter send · Esc normal · ↑↓ history "
         }
     } else {
-        " NORMAL · i edit · C-w/Space-w switch panes · : commands "
+        " NOR · i edit · C-w/Space-w switch panes · : commands "
     };
     surface.set_stringn(area.x, area.y, hint, area.width as usize, style);
 }
@@ -1069,7 +1067,6 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> bool {
     match key.code {
         KeyCode::Esc => {
             editor.agent.focus = AgentFocus::Normal;
-            editor.mode = helix_view::document::Mode::Normal;
             helix_event::request_redraw();
             true
         }
@@ -1158,7 +1155,6 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> bool {
 
 pub(crate) fn enter_insert_mode(editor: &mut Editor) {
     editor.agent.focus = AgentFocus::Insert;
-    editor.mode = helix_view::document::Mode::Insert;
     helix_event::request_redraw();
 }
 

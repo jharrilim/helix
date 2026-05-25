@@ -104,6 +104,10 @@ pub fn request_signature_help(
     invoked: SignatureHelpInvoked,
     cancel: TaskHandle,
 ) {
+    if !editor.is_document_view_focused() {
+        return;
+    }
+
     let (view, doc) = current!(editor);
 
     // TODO merge multiple language server signature help into one instead of just taking the first language server that supports it
@@ -336,7 +340,10 @@ pub(super) fn register_hooks(handlers: &Handlers) {
                     compositor.remove(SignatureHelp::ID);
                 }));
             }
-            (_, Mode::Insert) if event.cx.editor.config().lsp.auto_signature_help => {
+            (_, Mode::Insert)
+                if event.cx.editor.is_document_view_focused()
+                    && event.cx.editor.config().lsp.auto_signature_help =>
+            {
                 send_blocking(&tx, SignatureHelpEvent::Trigger);
             }
             _ => (),
