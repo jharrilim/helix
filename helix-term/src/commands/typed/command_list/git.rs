@@ -1,8 +1,9 @@
 use std::path::Path;
 
-use crate::commands::typed::{Args, CommandCompleter, PromptEvent, Signature, TypableCommand};
+use crate::commands::typed::{Args, CommandCompleter, FocusRequirement, PromptEvent, Signature, TypableCommand};
 use crate::compositor;
 use crate::job::{self, Callback};
+// Focus class: Global — git commands operate on repository state.
 
 pub(super) const COMMANDS: &[TypableCommand] = &[
     TypableCommand {
@@ -15,6 +16,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "git-add",
@@ -26,6 +28,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "git-commit",
@@ -37,6 +40,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
 ];
 

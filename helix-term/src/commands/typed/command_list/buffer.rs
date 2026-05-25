@@ -1,8 +1,9 @@
 use helix_core::command_line::Signature;
 
 use crate::ui::completers;
+// Focus class: Document — all buffer operations require a document view.
 
-use super::{CommandCompleter, TypableCommand};
+use super::{CommandCompleter, FocusRequirement, TypableCommand};
 use super::{BUFFER_CLOSE_OTHERS_SIGNATURE};
 use crate::commands::typed::buffer as cmd;
 
@@ -18,6 +19,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (1, None),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "buffer-close",
@@ -29,6 +31,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, None),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "buffer-close!",
@@ -40,6 +43,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, None),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "buffer-close-others",
@@ -48,6 +52,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
         fun: cmd::buffer_close_others,
         completer: CommandCompleter::none(),
         signature: BUFFER_CLOSE_OTHERS_SIGNATURE,
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "buffer-close-others!",
@@ -56,6 +61,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
         fun: cmd::force_buffer_close_others,
         completer: CommandCompleter::none(),
         signature: BUFFER_CLOSE_OTHERS_SIGNATURE,
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "buffer-close-all",
@@ -67,6 +73,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "buffer-close-all!",
@@ -78,6 +85,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "buffer-next",
@@ -89,6 +97,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "buffer-previous",
@@ -100,6 +109,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "new",
@@ -111,6 +121,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "encoding",
@@ -122,6 +133,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "reload",
@@ -133,6 +145,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "reload-all",
@@ -144,5 +157,6 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
 ];

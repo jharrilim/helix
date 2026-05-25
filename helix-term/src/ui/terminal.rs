@@ -1208,3 +1208,24 @@ pub fn resize_panels(editor: &Editor) {
         });
     }
 }
+
+pub(crate) fn enter_insert_mode(editor: &mut Editor) {
+    editor.terminal.pending_scroll_top = false;
+    editor.terminal.focus = TerminalFocus::Insert;
+    editor.mode = helix_view::document::Mode::Insert;
+    helix_event::request_redraw();
+}
+
+pub(crate) fn scroll_lines_by(editor: &mut Editor, delta: i32) {
+    scroll_lines(editor, delta);
+}
+
+pub(crate) fn scroll_to_top_from_keymap(editor: &mut Editor) {
+    editor.terminal.pending_scroll_top = false;
+    scroll_to_top(editor);
+}
+
+pub(crate) fn scroll_to_bottom_from_keymap(editor: &mut Editor) {
+    editor.terminal.pending_scroll_top = false;
+    scroll_to_bottom(editor);
+}

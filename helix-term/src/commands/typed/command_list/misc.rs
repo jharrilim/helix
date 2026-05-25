@@ -1,8 +1,9 @@
 use helix_core::command_line::Signature;
 
 use crate::ui::completers;
+// Focus class: Document for buffer ops; Global for registers/echo/redraw/noop.
 
-use super::{CommandCompleter, TypableCommand};
+use super::{CommandCompleter, FocusRequirement, TypableCommand};
 use crate::commands::typed::misc as cmd;
 
 pub(super) const COMMANDS: &[TypableCommand] = &[
@@ -17,6 +18,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "clear-register",
@@ -28,6 +30,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "set-register",
@@ -40,6 +43,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             raw_after: Some(1),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "redraw",
@@ -51,6 +55,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "move",
@@ -62,6 +67,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (1, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "move!",
@@ -73,6 +79,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (1, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "yank-diagnostic",
@@ -84,6 +91,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "read",
@@ -95,6 +103,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (1, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "echo",
@@ -106,6 +115,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (1, None),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "noop",
@@ -117,5 +127,6 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, None),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
 ];

@@ -1,8 +1,9 @@
 use helix_core::command_line::{Flag, Signature};
 
 use crate::ui::completers;
+// Focus class: Document — all edit operations require a document view.
 
-use super::{CommandCompleter, TypableCommand};
+use super::{CommandCompleter, FocusRequirement, TypableCommand};
 use crate::commands::typed::edit as cmd;
 
 pub(super) const COMMANDS: &[TypableCommand] = &[
@@ -17,6 +18,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "indent-style",
@@ -28,6 +30,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "line-ending",
@@ -42,6 +45,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "earlier",
@@ -53,6 +57,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "later",
@@ -64,6 +69,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "set-language",
@@ -75,6 +81,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "sort",
@@ -100,6 +107,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             ],
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "reflow",
@@ -111,5 +119,6 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
 ];

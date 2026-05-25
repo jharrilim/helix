@@ -122,10 +122,14 @@ pub async fn test_key_sequences(
     let num_inputs = inputs.len();
 
     for (i, (in_keys, test_fn)) in inputs.into_iter().enumerate() {
-        let (view, doc) = current_ref!(app.editor);
-        let state = test::plain(doc.text().slice(..), doc.selection(view.id));
+        if app.editor.is_document_view_focused() {
+            let (view, doc) = current_ref!(app.editor);
+            let state = test::plain(doc.text().slice(..), doc.selection(view.id));
 
-        log::debug!("executing test with document state:\n\n-----\n\n{}", state);
+            log::debug!("executing test with document state:\n\n-----\n\n{}", state);
+        } else {
+            log::debug!("executing test with panel focus (no document snapshot)");
+        }
 
         if let Some(in_keys) = in_keys {
             for key_event in parse_macro(in_keys)?.into_iter() {
@@ -137,7 +141,7 @@ pub async fn test_key_sequences(
 
         let app_exited = !app.event_loop_until_idle(&mut rx_stream).await;
 
-        if !app_exited {
+        if !app_exited && app.editor.is_document_view_focused() {
             let (view, doc) = current_ref!(app.editor);
             let state = test::plain(doc.text().slice(..), doc.selection(view.id));
 

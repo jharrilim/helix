@@ -1,8 +1,9 @@
 use helix_core::command_line::Signature;
 
 use crate::ui::completers;
+// Focus class: Global — directory and workspace trust commands.
 
-use super::{CommandCompleter, TypableCommand};
+use super::{CommandCompleter, FocusRequirement, TypableCommand};
 use crate::commands::typed::workspace as cmd;
 
 pub(super) const COMMANDS: &[TypableCommand] = &[
@@ -17,6 +18,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (1, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "show-directory-stack",
@@ -28,6 +30,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "push-directory",
@@ -39,6 +42,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (1, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "pop-directory",
@@ -50,6 +54,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "show-directory",
@@ -61,6 +66,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "workspace-trust",
@@ -69,6 +75,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
         fun: cmd::trust_workspace,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "workspace-untrust",
@@ -77,5 +84,6 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
         fun: cmd::untrust_workspace,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+        focus: FocusRequirement::Global,
     },
 ];

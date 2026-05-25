@@ -1,8 +1,9 @@
 use helix_core::command_line::Signature;
 
 
-use super::{CommandCompleter, TypableCommand};
+use super::{CommandCompleter, FocusRequirement, TypableCommand};
 use crate::commands::typed::treesitter as cmd;
+// Focus class: Document — tree-sitter introspection uses cursor position.
 
 pub(super) const COMMANDS: &[TypableCommand] = &[
 
@@ -16,6 +17,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "tree-sitter-highlight-name",
@@ -27,6 +29,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "tree-sitter-layers",
@@ -38,6 +41,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "tree-sitter-subtree",
@@ -49,5 +53,6 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
 ];

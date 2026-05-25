@@ -656,21 +656,23 @@ impl Component for Prompt {
                 (self.callback_fn)(cx, &self.line, PromptEvent::Update);
             }
             ctrl!('s') => {
-                let (view, doc) = current!(cx.editor);
-                let text = doc.text().slice(..);
+                if cx.editor.is_document_view_focused() {
+                    let (view, doc) = current!(cx.editor);
+                    let text = doc.text().slice(..);
 
-                use helix_core::textobject;
-                let range = textobject::textobject_word(
-                    text,
-                    doc.selection(view.id).primary(),
-                    textobject::TextObject::Inside,
-                    1,
-                    false,
-                );
-                let line = text.slice(range.from()..range.to()).to_string();
-                if !line.is_empty() {
-                    self.insert_str(line.as_str(), cx.editor);
-                    (self.callback_fn)(cx, &self.line, PromptEvent::Update);
+                    use helix_core::textobject;
+                    let range = textobject::textobject_word(
+                        text,
+                        doc.selection(view.id).primary(),
+                        textobject::TextObject::Inside,
+                        1,
+                        false,
+                    );
+                    let line = text.slice(range.from()..range.to()).to_string();
+                    if !line.is_empty() {
+                        self.insert_str(line.as_str(), cx.editor);
+                        (self.callback_fn)(cx, &self.line, PromptEvent::Update);
+                    }
                 }
             }
             key!(Enter) => {

@@ -10,15 +10,17 @@ pub(crate) fn exit(cx: &mut compositor::Context, args: Args, event: PromptEvent)
         return Ok(());
     }
 
-    if doc!(cx.editor).is_modified() {
-        write_impl(
-            cx,
-            args.first(),
-            WriteOptions {
-                force: false,
-                auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-            },
-        )?;
+    if let Some((_, doc)) = helix_view::try_current_ref!(cx.editor) {
+        if doc.is_modified() {
+            write_impl(
+                cx,
+                args.first(),
+                WriteOptions {
+                    force: false,
+                    auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
+                },
+            )?;
+        }
     }
     cx.block_try_flush_writes()?;
     quit(cx, Args::default(), event)
@@ -29,15 +31,17 @@ pub(crate) fn force_exit(cx: &mut compositor::Context, args: Args, event: Prompt
         return Ok(());
     }
 
-    if doc!(cx.editor).is_modified() {
-        write_impl(
-            cx,
-            args.first(),
-            WriteOptions {
-                force: true,
-                auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-            },
-        )?;
+    if let Some((_, doc)) = helix_view::try_current_ref!(cx.editor) {
+        if doc.is_modified() {
+            write_impl(
+                cx,
+                args.first(),
+                WriteOptions {
+                    force: true,
+                    auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
+                },
+            )?;
+        }
     }
     cx.block_try_flush_writes()?;
     quit(cx, Args::default(), event)
@@ -48,11 +52,6 @@ pub(crate) fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent
 
     if event != PromptEvent::Validate {
         return Ok(());
-    }
-
-    // last view and we have unsaved changes
-    if cx.editor.tree.views().count() == 1 {
-        buffers_remaining_impl(cx.editor)?
     }
 
     cx.block_try_flush_writes()?;
@@ -66,6 +65,16 @@ pub(crate) fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent
     }
     if cx.editor.tree.is_git_panel(cx.editor.tree.focus) {
         cx.editor.close_git_panel();
+        return Ok(());
+    }
+
+    // last view and we have unsaved changes
+    if cx.editor.tree.views().count() == 1 {
+        buffers_remaining_impl(cx.editor)?
+    }
+
+    if !cx.editor.is_document_view_focused() {
+        cx.editor.set_error("command requires a document view");
         return Ok(());
     }
 
@@ -90,6 +99,11 @@ pub(crate) fn force_quit(cx: &mut compositor::Context, _args: Args, event: Promp
     }
     if cx.editor.tree.is_git_panel(cx.editor.tree.focus) {
         cx.editor.close_git_panel();
+        return Ok(());
+    }
+
+    if !cx.editor.is_document_view_focused() {
+        cx.editor.set_error("command requires a document view");
         return Ok(());
     }
 
@@ -338,11 +352,12 @@ pub(crate) fn buffers_remaining_impl(editor: &mut Editor) -> anyhow::Result<()> 
         .collect();
 
     if let Some(first) = modified_ids.first() {
-        let current = doc!(editor);
-        // If the current document is unmodified, and there are modified
-        // documents, switch focus to the first modified doc.
-        if !modified_ids.contains(&current.id()) {
-            editor.switch(*first, Action::Replace);
+        if let Some((_, current)) = helix_view::try_current_ref!(editor) {
+            // If the current document is unmodified, and there are modified
+            // documents, switch focus to the first modified doc.
+            if !modified_ids.contains(&current.id()) {
+                editor.switch(*first, Action::Replace);
+            }
         }
 
         let modified_names: Vec<_> = modified_ids

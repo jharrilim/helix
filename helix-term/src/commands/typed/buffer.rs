@@ -60,11 +60,12 @@ pub(crate) fn buffer_close_by_ids_impl(
         .unzip();
 
     if let Some(first) = modified_ids.first() {
-        let current = doc!(cx.editor);
-        // If the current document is unmodified, and there are modified
-        // documents, switch focus to the first modified doc.
-        if !modified_ids.contains(&current.id()) {
-            cx.editor.switch(*first, Action::Replace);
+        if let Some((_, current)) = helix_view::try_current_ref!(cx.editor) {
+            // If the current document is unmodified, and there are modified
+            // documents, switch focus to the first modified doc.
+            if !modified_ids.contains(&current.id()) {
+                cx.editor.switch(*first, Action::Replace);
+            }
         }
         bail!(
             "{} unsaved buffer{} remaining: {:?}",
@@ -80,8 +81,10 @@ pub(crate) fn buffer_close_by_ids_impl(
 pub(crate) fn buffer_gather_paths_impl(editor: &mut Editor, args: Args) -> Vec<DocumentId> {
     // No arguments implies current document
     if args.is_empty() {
-        let doc_id = view!(editor).doc;
-        return vec![doc_id];
+        let Some((view, _)) = helix_view::try_current!(editor) else {
+            return vec![];
+        };
+        return vec![view.doc];
     }
 
     let mut nonexistent_buffers = vec![];
@@ -151,7 +154,10 @@ fn buffer_gather_others_impl(editor: &mut Editor, skip_visible: bool) -> Vec<Doc
             .filter(|doc_id| !visible_document_ids.contains(doc_id))
             .collect()
     } else {
-        let current_document = &doc!(editor).id();
+        let Some((_, current)) = helix_view::try_current_ref!(editor) else {
+            return vec![];
+        };
+        let current_document = &current.id();
         editor
             .documents()
             .map(|doc| doc.id())

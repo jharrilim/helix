@@ -9,7 +9,7 @@ use crate::{graphics::Rect, View, ViewId};
 use slotmap::SlotMap;
 
 /// Kind of leaf node in the split tree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LeafKind {
     View,
     AgentPanel,

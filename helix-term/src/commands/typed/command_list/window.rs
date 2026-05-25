@@ -1,8 +1,9 @@
 use helix_core::command_line::Signature;
 
 use crate::ui::completers;
+// Focus class: Document — splits and goto require a document view.
 
-use super::{CommandCompleter, TypableCommand};
+use super::{CommandCompleter, FocusRequirement, TypableCommand};
 use crate::commands::typed::window as cmd;
 
 pub(super) const COMMANDS: &[TypableCommand] = &[
@@ -17,6 +18,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, None),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "vsplit-new",
@@ -28,6 +30,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "hsplit",
@@ -39,6 +42,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, None),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "hsplit-new",
@@ -50,6 +54,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "tutor",
@@ -61,6 +66,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "goto",
@@ -72,5 +78,6 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (1, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
 ];

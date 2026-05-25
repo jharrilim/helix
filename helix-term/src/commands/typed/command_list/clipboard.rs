@@ -1,8 +1,9 @@
 use helix_core::command_line::Signature;
 
 
-use super::{CommandCompleter, TypableCommand};
+use super::{CommandCompleter, FocusRequirement, TypableCommand};
 use crate::commands::typed::clipboard as cmd;
+// Focus class: Document for yank/paste; Global for show-clipboard-provider.
 
 pub(super) const COMMANDS: &[TypableCommand] = &[
 
@@ -16,6 +17,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "clipboard-yank",
@@ -27,6 +29,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "clipboard-yank-join",
@@ -38,6 +41,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "primary-clipboard-yank",
@@ -49,6 +53,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "primary-clipboard-yank-join",
@@ -60,6 +65,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "clipboard-paste-after",
@@ -71,6 +77,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "clipboard-paste-before",
@@ -82,6 +89,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "clipboard-paste-replace",
@@ -93,6 +101,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "primary-clipboard-paste-after",
@@ -104,6 +113,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "primary-clipboard-paste-before",
@@ -115,6 +125,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "primary-clipboard-paste-replace",
@@ -126,6 +137,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "show-clipboard-provider",
@@ -137,5 +149,6 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
 ];

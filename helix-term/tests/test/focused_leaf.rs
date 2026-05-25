@@ -1,6 +1,18 @@
+use helix_core::diagnostic::Severity;
+use helix_term::application::Application;
 use helix_view::{tree::LeafKind, FocusTarget};
 
 use super::helpers::AppBuilder;
+
+const DOCUMENT_VIEW_REQUIRED: &str = "command requires a document view";
+
+fn expect_document_view_error(app: &mut Application, command: &str) {
+    app.validate_typed_command(command, "")
+        .expect("command dispatch should not fail");
+    let (status, severity) = app.editor.get_status().unwrap();
+    assert_eq!(*severity, Severity::Error, "command :{command}");
+    assert_eq!(status.as_ref(), DOCUMENT_VIEW_REQUIRED);
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn document_view_focus_is_detected() -> anyhow::Result<()> {
@@ -57,5 +69,64 @@ async fn quit_all_closes_git_panel() -> anyhow::Result<()> {
     app.editor.close_terminal_panel();
     app.editor.close_git_panel();
     assert!(app.editor.git.panel_id.is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn typed_write_from_git_panel_errors() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().with_file("foo.txt", None).build()?;
+    app.editor.open_git_panel();
+    expect_document_view_error(&mut app, "write");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn typed_format_from_git_panel_errors() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().with_file("foo.txt", None).build()?;
+    app.editor.open_git_panel();
+    expect_document_view_error(&mut app, "format");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn typed_buffer_next_from_git_panel_errors() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().with_file("foo.txt", None).build()?;
+    app.editor.open_git_panel();
+    expect_document_view_error(&mut app, "buffer-next");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn typed_vsplit_from_git_panel_errors() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().with_file("foo.txt", None).build()?;
+    app.editor.open_git_panel();
+    expect_document_view_error(&mut app, "vsplit");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn typed_yank_join_from_agent_panel_errors() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().with_file("foo.txt", None).build()?;
+    app.editor.open_agent_panel();
+    expect_document_view_error(&mut app, "yank-join");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn typed_quit_from_git_panel_closes_panel() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().with_file("foo.txt", None).build()?;
+    app.editor.open_git_panel();
+    app.validate_typed_command("quit", "")?;
+    assert!(app.editor.git.panel_id.is_none());
+    assert!(!app.editor.is_err());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn typed_agent_open_from_git_panel_succeeds() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().with_file("foo.txt", None).build()?;
+    app.editor.open_git_panel();
+    app.validate_typed_command("agent-open", "")?;
+    assert!(app.editor.agent.panel_id.is_some());
     Ok(())
 }

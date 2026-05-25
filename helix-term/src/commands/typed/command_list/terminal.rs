@@ -1,8 +1,9 @@
 use helix_core::command_line::{Flag, Signature};
 
 use crate::ui::completers;
+// Focus class: Global — terminal panel commands are safe from any focus.
 
-use super::{CommandCompleter, TypableCommand};
+use super::{CommandCompleter, FocusRequirement, TypableCommand};
 use crate::commands::typed::terminal as cmd;
 
 pub(super) const COMMANDS: &[TypableCommand] = &[
@@ -23,6 +24,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             }],
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "terminal-close",
@@ -31,6 +33,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
         fun: cmd::typed_terminal_close,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "terminal-new",
@@ -39,6 +42,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
         fun: cmd::typed_terminal_new,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "terminal-list",
@@ -47,6 +51,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
         fun: cmd::typed_terminal_list,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "terminal-focus",
@@ -58,6 +63,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (1, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "terminal-toggle",
@@ -66,6 +72,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
         fun: cmd::typed_terminal_toggle,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "terminal-send",
@@ -83,5 +90,6 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             }],
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
 ];

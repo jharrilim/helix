@@ -1,8 +1,9 @@
 use helix_core::command_line::Signature;
 
 use crate::ui::completers;
+// Focus class: Document — LSP commands operate on the current buffer.
 
-use super::{CommandCompleter, TypableCommand};
+use super::{CommandCompleter, FocusRequirement, TypableCommand};
 use super::{WRITE_NO_FORMAT_FLAG};
 use crate::commands::typed::lsp as cmd;
 
@@ -19,6 +20,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             flags: &[WRITE_NO_FORMAT_FLAG],
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "lsp-workspace-command",
@@ -31,6 +33,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             raw_after: Some(1),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "lsp-restart",
@@ -42,6 +45,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, None),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "lsp-stop",
@@ -53,5 +57,6 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, None),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
 ];

@@ -1,11 +1,10 @@
 use crate::{
     commands::{self, OnKeyCallback, OnKeyCallbackKind},
     compositor::{Component, Context, Event, EventResult},
-    ctrl,
     events::{OnModeSwitch, PostCommand},
     handlers::completion::CompletionItem,
     key,
-    keymap::{KeymapResult, Keymaps},
+    keymap::{KeymapResult, Keymaps, PanelKeymaps},
     ui::{
         document::{render_document, LinePos, TextRenderer},
         statusline,
@@ -30,6 +29,7 @@ use helix_view::{
     graphics::{Color, CursorKind, Modifier, Rect, Style},
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     keyboard::{KeyCode, KeyModifiers},
+    tree::LeafKind,
     Document, Editor, Theme, View,
 };
 use std::{mem::take, num::NonZeroUsize, ops, path::PathBuf, rc::Rc};
@@ -38,10 +38,9 @@ use tui::{buffer::Buffer as Surface, text::Span};
 
 pub struct EditorView {
     pub keymaps: Keymaps,
+    panel_keymaps: PanelKeymaps,
     on_next_key: Option<(OnKeyCallback, OnKeyCallbackKind)>,
     pseudo_pending: Vec<KeyEvent>,
-    agent_window_pending: bool,
-    terminal_window_pending: bool,
     pub(crate) last_insert: (commands::MappableCommand, Vec<InsertEvent>),
     pub(crate) completion: Option<Completion>,
     spinners: ProgressSpinners,
@@ -64,10 +63,9 @@ impl EditorView {
     pub fn new(keymaps: Keymaps) -> Self {
         Self {
             keymaps,
+            panel_keymaps: PanelKeymaps::default(),
             on_next_key: None,
             pseudo_pending: Vec::new(),
-            agent_window_pending: false,
-            terminal_window_pending: false,
             last_insert: (commands::MappableCommand::normal_mode, Vec::new()),
             completion: None,
             spinners: ProgressSpinners::default(),
@@ -988,6 +986,45 @@ impl EditorView {
         None
     }
 
+    fn handle_panel_keymap_event(
+        &mut self,
+        kind: LeafKind,
+        cxt: &mut commands::Context,
+        event: KeyEvent,
+    ) -> Option<KeymapResult> {
+        self.pseudo_pending.extend(self.panel_keymaps.pending());
+        let key_result = self.panel_keymaps.get(kind, event);
+        cxt.editor.autoinfo = self.panel_keymaps.sticky().map(|node| node.infobox());
+
+        let mut last_mode = cxt.editor.mode();
+        let mut execute_command = |command: &commands::MappableCommand| {
+            command.execute(cxt);
+            helix_event::dispatch(PostCommand { command, cx: cxt });
+
+            let current_mode = cxt.editor.mode();
+            if current_mode != last_mode {
+                helix_event::dispatch(OnModeSwitch {
+                    old_mode: last_mode,
+                    new_mode: current_mode,
+                    cx: cxt,
+                });
+            }
+            last_mode = current_mode;
+        };
+
+        match &key_result {
+            KeymapResult::Matched(command) => execute_command(command),
+            KeymapResult::Pending(node) => cxt.editor.autoinfo = Some(node.infobox()),
+            KeymapResult::MatchedSequence(commands) => {
+                for command in commands {
+                    execute_command(command);
+                }
+            }
+            KeymapResult::NotFound | KeymapResult::Cancelled(_) => return Some(key_result),
+        }
+        None
+    }
+
     fn insert_mode(&mut self, cx: &mut commands::Context, event: KeyEvent) {
         if let Some(keyresult) = self.handle_keymap_event(Mode::Insert, cx, event) {
             match keyresult {
@@ -1121,54 +1158,28 @@ impl EditorView {
         matches!(key, key!(':'))
             || !self.keymaps.pending().is_empty()
             || self.keymaps.sticky().is_some()
+            || !self.panel_keymaps.pending().is_empty()
+            || self.panel_keymaps.sticky().is_some()
     }
 
     fn panel_keymap_passthrough_without_space(&self, key: KeyEvent) -> bool {
-        matches!(key, key!(':'))
-            || !self.keymaps.pending().is_empty()
-            || self.keymaps.sticky().is_some()
+        self.panel_keymap_passthrough(key)
     }
 
-    pub(crate) fn handle_git_normal_key(&mut self, cxt: &mut commands::Context, key: KeyEvent) -> bool {
-        if matches!(key, key!('q') | ctrl!('q')) {
-            cxt.editor.close_git_panel();
-            return true;
-        }
-        crate::ui::git::handle_normal_key(cxt, key)
+    pub(crate) fn handle_git_normal_key(
+        &mut self,
+        _cxt: &mut commands::Context,
+        _key: KeyEvent,
+    ) -> bool {
+        false
     }
 
-    pub(crate) fn handle_agent_normal_key(&mut self, cxt: &mut commands::Context, key: KeyEvent) -> bool {
-        if self.agent_window_pending {
-            self.agent_window_pending = false;
-            match key {
-                key!('w') | ctrl!('w') => cxt.editor.focus_next(),
-                key!('h') | ctrl!('h') | key!(Left) => cxt
-                    .editor
-                    .focus_direction(helix_view::tree::Direction::Left),
-                key!('j') | ctrl!('j') | key!(Down) => cxt
-                    .editor
-                    .focus_direction(helix_view::tree::Direction::Down),
-                key!('k') | ctrl!('k') | key!(Up) => {
-                    cxt.editor.focus_direction(helix_view::tree::Direction::Up)
-                }
-                key!('l') | ctrl!('l') | key!(Right) => cxt
-                    .editor
-                    .focus_direction(helix_view::tree::Direction::Right),
-                key!('q') | ctrl!('q') => {
-                    crate::commands::agent::close_agent_panel_editor(cxt.editor)
-                }
-                _ => cxt.editor.set_error("unsupported agent window command"),
-            }
-            return true;
-        }
-
-        if key == ctrl!('w') {
-            self.agent_window_pending = true;
-            cxt.editor.set_status("agent window command");
-            return true;
-        }
-
-        crate::ui::agent::handle_normal_key(cxt.editor, key)
+    pub(crate) fn handle_agent_normal_key(
+        &mut self,
+        _cxt: &mut commands::Context,
+        _key: KeyEvent,
+    ) -> bool {
+        false
     }
 
     pub(crate) fn handle_terminal_normal_key(
@@ -1177,49 +1188,11 @@ impl EditorView {
         key: KeyEvent,
     ) -> bool {
         if cxt.editor.terminal.tab_menu_active
-            && crate::ui::terminal_tabs::handle_key(cxt.editor, cxt.jobs, key) {
-                return true;
-            }
-
-        if self.terminal_window_pending {
-            self.terminal_window_pending = false;
-            match key {
-                key!('w') | ctrl!('w') => cxt.editor.focus_next(),
-                key!('h') | ctrl!('h') | key!(Left) => cxt
-                    .editor
-                    .focus_direction(helix_view::tree::Direction::Left),
-                key!('j') | ctrl!('j') | key!(Down) => cxt
-                    .editor
-                    .focus_direction(helix_view::tree::Direction::Down),
-                key!('k') | ctrl!('k') | key!(Up) => {
-                    cxt.editor.focus_direction(helix_view::tree::Direction::Up)
-                }
-                key!('l') | ctrl!('l') | key!(Right) => cxt
-                    .editor
-                    .focus_direction(helix_view::tree::Direction::Right),
-                key!('q') | ctrl!('q') => {
-                    crate::commands::terminal::close_terminal_panel_editor(cxt.editor);
-                }
-                _ => cxt.editor.set_error("unsupported terminal window command"),
-            }
+            && crate::ui::terminal_tabs::handle_key(cxt.editor, cxt.jobs, key)
+        {
             return true;
         }
-
-        if key == ctrl!('w') {
-            self.terminal_window_pending = true;
-            cxt.editor.set_status("terminal window command");
-            return true;
-        }
-
-        if crate::ui::terminal::handle_normal_key_with_search(cxt.editor, key) {
-            if cxt.editor.terminal.open_search_prompt {
-                cxt.editor.terminal.open_search_prompt = false;
-                crate::ui::terminal::open_search_prompt(cxt);
-            }
-            return true;
-        }
-
-        false
+        crate::ui::terminal::handle_normal_key_with_search(cxt.editor, key)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1646,6 +1619,9 @@ impl Component for EditorView {
                     }
 
                     if !self.panel_keymap_passthrough(key) {
+                        if self.handle_panel_keymap_event(kind, &mut cx, key).is_none() {
+                            return Self::event_with_callbacks(&mut cx);
+                        }
                         if super::panel::handle_normal_key(self, &mut cx, kind, key) {
                             return Self::event_with_callbacks(&mut cx);
                         }

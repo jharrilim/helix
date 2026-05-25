@@ -1136,35 +1136,14 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> bool {
     }
 }
 
-pub fn handle_normal_key(editor: &mut Editor, key: KeyEvent) -> bool {
-    if !editor.agent.is_open() {
-        return false;
-    }
+pub(crate) fn enter_insert_mode(editor: &mut Editor) {
+    editor.agent.focus = AgentFocus::Insert;
+    editor.mode = helix_view::document::Mode::Insert;
+    helix_event::request_redraw();
+}
 
-    match key.code {
-        KeyCode::Char('i') | KeyCode::Char('a') => {
-            editor.agent.focus = AgentFocus::Insert;
-            editor.mode = helix_view::document::Mode::Insert;
-            helix_event::request_redraw();
-            true
-        }
-        KeyCode::Char('z') => toggle_focused_collapsible(editor),
-        KeyCode::Enter => {
-            editor.agent.focus = AgentFocus::Insert;
-            editor.mode = helix_view::document::Mode::Insert;
-            helix_event::request_redraw();
-            true
-        }
-        KeyCode::PageUp => {
-            editor.agent.scroll = editor.agent.scroll.saturating_add(1);
-            true
-        }
-        KeyCode::PageDown => {
-            editor.agent.scroll = editor.agent.scroll.saturating_sub(1);
-            true
-        }
-        _ => false,
-    }
+pub(crate) fn toggle_focused_collapsible_block(editor: &mut Editor) {
+    toggle_focused_collapsible(editor);
 }
 
 fn toggle_focused_collapsible(editor: &mut Editor) -> bool {

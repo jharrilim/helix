@@ -1,8 +1,9 @@
 use helix_core::command_line::Signature;
 
 use crate::ui::completers;
+// Focus class: Global — config and theme commands are safe from panel focus.
 
-use super::{CommandCompleter, TypableCommand};
+use super::{CommandCompleter, FocusRequirement, TypableCommand};
 use crate::commands::typed::config as cmd;
 
 pub(super) const COMMANDS: &[TypableCommand] = &[
@@ -17,6 +18,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "set-option",
@@ -30,6 +32,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             raw_after: Some(1),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "toggle-option",
@@ -42,6 +45,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             raw_after: Some(1),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "get-option",
@@ -53,6 +57,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (1, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "config-reload",
@@ -64,6 +69,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "config-open",
@@ -75,6 +81,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "config-open-workspace",
@@ -86,6 +93,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "log-open",
@@ -97,5 +105,6 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
 ];

@@ -1,8 +1,9 @@
 use helix_core::command_line::Signature;
 
 
-use super::{CommandCompleter, TypableCommand};
+use super::{CommandCompleter, FocusRequirement, TypableCommand};
 use crate::commands::typed::debug as cmd;
+// Focus class: Document — debug sessions use current buffer language.
 
 pub(super) const COMMANDS: &[TypableCommand] = &[
 
@@ -16,6 +17,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, None),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "debug-remote",
@@ -27,6 +29,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, None),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "debug-eval",
@@ -38,5 +41,6 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (1, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
 ];

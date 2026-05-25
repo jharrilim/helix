@@ -59,38 +59,38 @@ into one of:
 
 ### Lifecycle and buffer (high traffic)
 
-- [ ] Audit [`lifecycle.rs`](../helix-term/src/commands/typed/lifecycle.rs) — `:write` guarded; extend to `:write-buffer`, `:update`, `:yank`, `:delete`, `:insert`
-- [ ] Audit [`buffer.rs`](../helix-term/src/commands/typed/buffer.rs) — most need document guard
-- [ ] Audit [`edit.rs`](../helix-term/src/commands/typed/edit.rs) — `:sort`, `:shuffle`, `:reflow`, etc.
-- **Acceptance:** running `:write` or `:yank` with git panel focused shows an
+- [x] Audit [`lifecycle.rs`](../helix-term/src/commands/typed/lifecycle.rs) — dispatch guard + quit ordering fix; exit uses `try_current_ref!`
+- [x] Audit [`buffer.rs`](../helix-term/src/commands/typed/buffer.rs) — document focus via registry; helpers use `try_current!`
+- [x] Audit [`edit.rs`](../helix-term/src/commands/typed/edit.rs) — all commands classified `Document`
+- **Acceptance:** running `:write` or `:yank-join` with git panel focused shows an
   error, does not panic
 
 ### Window and workspace
 
-- [ ] Audit [`window.rs`](../helix-term/src/commands/typed/window.rs) — `:vsplit` etc. should error from panel (mirror `split` guard)
-- [ ] Audit [`workspace.rs`](../helix-term/src/commands/typed/workspace.rs)
+- [x] Audit [`window.rs`](../helix-term/src/commands/typed/window.rs) — all commands classified `Document`; dispatch guard covers `:vsplit`
+- [x] Audit [`workspace.rs`](../helix-term/src/commands/typed/workspace.rs) — all commands classified `Global`
 - **Acceptance:** `:vsplit` from agent panel returns error message
 
 ### LSP, treesitter, diff, clipboard
 
-- [ ] Audit [`lsp.rs`](../helix-term/src/commands/typed/lsp.rs)
-- [ ] Audit [`treesitter.rs`](../helix-term/src/commands/typed/treesitter.rs)
-- [ ] Audit [`diff.rs`](../helix-term/src/commands/typed/diff.rs)
-- [ ] Audit [`clipboard.rs`](../helix-term/src/commands/typed/clipboard.rs)
+- [x] Audit [`lsp.rs`](../helix-term/src/commands/typed/lsp.rs)
+- [x] Audit [`treesitter.rs`](../helix-term/src/commands/typed/treesitter.rs)
+- [x] Audit [`diff.rs`](../helix-term/src/commands/typed/diff.rs)
+- [x] Audit [`clipboard.rs`](../helix-term/src/commands/typed/clipboard.rs)
 - **Acceptance:** each module documented in registry comments with focus class
 
 ### Panel commands (explicit allowlist)
 
-- [ ] Confirm [`agent.rs`](../helix-term/src/commands/typed/agent.rs) safe with panel focus
-- [ ] Confirm [`terminal.rs`](../helix-term/src/commands/typed/terminal.rs) safe
-- [ ] Add git typed commands when present — safe with git panel focused
+- [x] Confirm [`agent.rs`](../helix-term/src/commands/typed/agent.rs) safe with panel focus
+- [x] Confirm [`terminal.rs`](../helix-term/src/commands/typed/terminal.rs) safe
+- [x] Add git typed commands when present — safe with git panel focused
 - **Acceptance:** `:agent-open`, `:terminal-open` work with any panel focused
 
 ### Registry metadata (optional enhancement)
 
-- [ ] Add `requires_document: bool` (or `FocusRequirement` enum) to
+- [x] Add `FocusRequirement` enum to
   [`TypableCommand`](../helix-term/src/commands/typed/mod.rs)
-- [ ] Wrap dispatch in [`infra.rs`](../helix-term/src/commands/typed/infra.rs)
+- [x] Wrap dispatch in [`infra.rs`](../helix-term/src/commands/typed/infra.rs)
   to auto-guard document commands before `fun` runs
 - **Acceptance:** new typed commands declare focus requirement at registration;
   forgotten guards caught by wrapper
@@ -99,11 +99,11 @@ into one of:
 
 Typed-command completers often call `doc!` / `current!` while the prompt is open.
 
-- [ ] Audit [`helix-term/src/ui/completers`](../helix-term/src/ui/mod.rs) —
+- [x] Audit [`helix-term/src/ui/completers`](../helix-term/src/ui/mod.rs) —
   `buffer`, `configured_language_servers`, `active_language_servers`, etc.
-- [ ] Audit [`prompt.rs`](../helix-term/src/ui/prompt.rs) and regex prompt paths
+- [x] Audit [`prompt.rs`](../helix-term/src/ui/prompt.rs) and regex prompt paths
   in `ui/mod.rs`
-- [ ] Return empty completions or use last-focused document when panel focused
+- [x] Return empty completions or use last-focused document when panel focused
 - **Acceptance:** `:buffer` tab-completion with agent panel focused does not panic
 
 ## Tier 3 — Mappable command spot-check
@@ -111,19 +111,19 @@ Typed-command completers often call `doc!` / `current!` while the prompt is open
 Normal-mode mappable commands are **not** reachable via space from panels, but
 may still run via sticky maps or programmatic invocation.
 
-- [ ] Audit commands in [`movement.rs`](../helix-term/src/commands/movement.rs),
-  [`edit.rs`](../helix-term/src/commands/edit.rs), [`selection.rs`](../helix-term/src/commands/selection.rs) — only if invoked without document focus
-- [ ] Prefer leaving as-is if unreachable; add guards only where handlers call
+- [x] Audit commands in [`movement.rs`](../helix-term/src/commands/movement.rs),
+  [`edit.rs`](../helix-term/src/commands/edit.rs), [`selection.rs`](../helix-term/src/commands/selection.rs) — no changes needed; not reachable from panel `:`
+- [x] Prefer leaving as-is if unreachable; add guards only where handlers call
   them with `tree.focus` directly
 - **Acceptance:** grep documents any intentional `current!` without guard
 
 ## Tier 4 — Tests and regression prevention
 
-- [ ] Extend [`focused_leaf.rs`](../helix-term/tests/test/focused_leaf.rs) —
+- [x] Extend [`focused_leaf.rs`](../helix-term/tests/test/focused_leaf.rs) —
   typed-command smoke tests per panel kind
-- [ ] Test matrix: `:write`, `:yank`, `:vsplit`, `:buffer-next` with git/agent
+- [x] Test matrix: `:write`, `:yank-join`, `:vsplit`, `:buffer-next` with git/agent
   focused → error, no panic
-- [ ] Test `:agent-open` / `:quit` with panel focused → succeeds
+- [x] Test `:agent-open` / `:quit` with panel focused → succeeds
 - [ ] (Optional) compile-time or CI grep: flag new `current!` in
   `commands/typed/` without adjacent guard comment
 - **Acceptance:** CI blocks reintroduction of unguarded typed-command panics
@@ -139,8 +139,22 @@ may still run via sticky maps or programmatic invocation.
 
 ## Conventions
 
+Prefer registry metadata + centralized dispatch guard for typed commands:
+
 ```rust
-// At the top of a document-only typed command:
+TypableCommand {
+    name: "write",
+    // ...
+    focus: FocusRequirement::Document,
+}
+```
+
+For handlers with special panel branches (e.g. `:quit`), use `FocusRequirement::Global`
+and handle panel focus explicitly in the handler.
+
+Per-handler guards remain valid where needed:
+
+```rust
 if !crate::commands::require_document_view_or_error(cx.editor) {
     return Ok(());
 }

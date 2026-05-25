@@ -10,7 +10,7 @@ use helix_core::command_line::{self, Args, Flag, Signature, Token, TokenKind};
 use helix_core::fuzzy::fuzzy_match;
 use helix_view::expansion;
 
-use super::{CommandCompleter, TypableCommand, TYPABLE_COMMAND_LIST};
+use super::{CommandCompleter, FocusRequirement, TypableCommand, TYPABLE_COMMAND_LIST};
 
 pub static TYPABLE_COMMAND_MAP: Lazy<HashMap<&'static str, &'static TypableCommand>> =
     Lazy::new(|| {
@@ -61,6 +61,16 @@ pub fn execute_command(
         Args::parse(args, cmd.signature, false, |token| Ok(token.content))
             .expect("arg parsing cannot fail when validation is turned off")
     };
+
+    if cmd.focus == FocusRequirement::Document && !cx.editor.is_document_view_focused() {
+        match event {
+            PromptEvent::Validate => {
+                cx.editor.set_error("command requires a document view");
+                return Ok(());
+            }
+            PromptEvent::Update | PromptEvent::Abort => return Ok(()),
+        }
+    }
 
     (cmd.fun)(cx, args, event).map_err(|err| anyhow!("'{}': {err}", cmd.name))
 }

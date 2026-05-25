@@ -299,6 +299,23 @@ impl Application {
         buffer_to_plain(self.terminal.backend().buffer())
     }
 
+    #[cfg(feature = "integration")]
+    /// Runs a typed command as if the user pressed Enter in command mode.
+    pub fn validate_typed_command(&mut self, name: &str, args: &str) -> anyhow::Result<()> {
+        use crate::commands::typed::{execute_command, TYPABLE_COMMAND_MAP};
+        use crate::ui::prompt::PromptEvent;
+
+        let cmd = TYPABLE_COMMAND_MAP
+            .get(name)
+            .ok_or_else(|| anyhow::anyhow!("no such command: {name}"))?;
+        let mut cx = crate::compositor::Context {
+            editor: &mut self.editor,
+            jobs: &mut self.jobs,
+            scroll: None,
+        };
+        execute_command(&mut cx, cmd, args, PromptEvent::Validate)
+    }
+
     async fn render(&mut self) {
         if self.compositor.full_redraw {
             self.terminal.clear().expect("Cannot clear the terminal");

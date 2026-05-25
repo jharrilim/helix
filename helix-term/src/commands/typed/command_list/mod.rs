@@ -1,4 +1,4 @@
-use super::{CommandCompleter, TypableCommand};
+use super::{CommandCompleter, FocusRequirement, TypableCommand};
 
 mod agent;
 mod buffer;

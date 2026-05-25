@@ -1,5 +1,7 @@
 pub mod default;
 pub mod macros;
+pub mod panel;
+pub mod window;
 
 pub use crate::commands::MappableCommand;
 pub use default::default;
@@ -260,6 +262,87 @@ pub enum KeymapResult {
 
 /// A map of command names to keybinds that will execute the command.
 pub type ReverseKeymap = HashMap<String, Vec<Vec<KeyEvent>>>;
+
+/// Keymap state for an auxiliary panel leaf (git, agent, terminal).
+pub struct PanelKeymaps {
+    map: HashMap<helix_view::tree::LeafKind, KeyTrie>,
+    state: Vec<KeyEvent>,
+    sticky: Option<KeyTrieNode>,
+}
+
+impl PanelKeymaps {
+    pub fn default() -> Self {
+        Self {
+            map: panel::default(),
+            state: Vec::new(),
+            sticky: None,
+        }
+    }
+
+    pub fn pending(&self) -> &[KeyEvent] {
+        &self.state
+    }
+
+    pub fn sticky(&self) -> Option<&KeyTrieNode> {
+        self.sticky.as_ref()
+    }
+
+    pub fn get(&mut self, kind: helix_view::tree::LeafKind, key: KeyEvent) -> KeymapResult {
+        let Some(keymap) = self.map.get(&kind) else {
+            return KeymapResult::NotFound;
+        };
+
+        if key!(Esc) == key {
+            if !self.state.is_empty() {
+                return KeymapResult::Cancelled(self.state.drain(..).collect());
+            }
+            self.sticky = None;
+        }
+
+        let first = self.state.first().unwrap_or(&key);
+        let trie_node = match self.sticky {
+            Some(ref trie) => Cow::Owned(KeyTrie::Node(trie.clone())),
+            None => Cow::Borrowed(keymap),
+        };
+
+        let trie = match trie_node.search(&[*first]) {
+            Some(KeyTrie::MappableCommand(ref cmd)) => {
+                self.sticky = None;
+                self.state.clear();
+                return KeymapResult::Matched(cmd.clone());
+            }
+            Some(KeyTrie::Sequence(ref cmds)) => {
+                self.sticky = None;
+                self.state.clear();
+                return KeymapResult::MatchedSequence(cmds.clone());
+            }
+            None => return KeymapResult::NotFound,
+            Some(t) => t,
+        };
+
+        self.state.push(key);
+        match trie.search(&self.state[1..]) {
+            Some(KeyTrie::Node(map)) => {
+                if map.is_sticky {
+                    self.state.clear();
+                    self.sticky = Some(map.clone());
+                }
+                KeymapResult::Pending(map.clone())
+            }
+            Some(KeyTrie::MappableCommand(cmd)) => {
+                self.state.clear();
+                self.sticky = None;
+                KeymapResult::Matched(cmd.clone())
+            }
+            Some(KeyTrie::Sequence(cmds)) => {
+                self.state.clear();
+                self.sticky = None;
+                KeymapResult::MatchedSequence(cmds.clone())
+            }
+            None => KeymapResult::Cancelled(self.state.drain(..).collect()),
+        }
+    }
+}
 
 pub struct Keymaps {
     pub map: Box<dyn DynAccess<HashMap<Mode, KeyTrie>>>,

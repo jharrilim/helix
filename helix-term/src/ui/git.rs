@@ -2,13 +2,11 @@
 
 use std::path::Path;
 
-use crate::commands::Context;
 use crate::compositor::EventResult;
 use helix_view::{
     git::GitSelection,
     graphics::{Modifier, Rect},
-    input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
-    keyboard::KeyCode,
+    input::{MouseButton, MouseEvent, MouseEventKind},
     theme::Style,
     Editor, ViewId,
 };
@@ -286,49 +284,12 @@ fn display_path(path: &Path, cwd: &Path) -> String {
         .to_string()
 }
 
-pub fn handle_normal_key(cx: &mut Context, key: KeyEvent) -> bool {
-    use helix_view::document::Mode;
-    cx.editor.mode = Mode::Normal;
+pub(crate) fn move_selection_next(editor: &mut Editor) {
+    move_selection(editor, 1);
+}
 
-    match key.code {
-        KeyCode::Char('j') | KeyCode::Down => {
-            move_selection(cx.editor, 1);
-            true
-        }
-        KeyCode::Char('k') | KeyCode::Up => {
-            move_selection(cx.editor, -1);
-            true
-        }
-        KeyCode::Enter | KeyCode::Char('o') => {
-            crate::commands::git::git_open(cx);
-            true
-        }
-        KeyCode::Char('d') => {
-            crate::commands::git::git_diff(cx);
-            true
-        }
-        KeyCode::Char('a') => {
-            crate::commands::git::git_stage_selected(cx);
-            true
-        }
-        KeyCode::Char('A') => {
-            crate::commands::git::git_stage_all(cx);
-            true
-        }
-        KeyCode::Char('c') => {
-            crate::commands::git::git_commit_prompt(cx);
-            true
-        }
-        KeyCode::Char('r') => {
-            crate::commands::git::git_refresh(cx);
-            true
-        }
-        KeyCode::Esc => {
-            crate::commands::git::git_focus_editor(cx);
-            true
-        }
-        _ => false,
-    }
+pub(crate) fn move_selection_prev(editor: &mut Editor) {
+    move_selection(editor, -1);
 }
 
 fn move_selection(editor: &mut Editor, delta: i32) {

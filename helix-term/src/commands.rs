@@ -23,6 +23,7 @@ pub(crate) mod view;
 pub(crate) mod textobject;
 pub(crate) mod shell;
 pub(crate) mod misc;
+pub(crate) mod panel_keys;
 
 pub use context::{Context, OnKeyCallback, OnKeyCallbackKind};
 pub(crate) use helpers::*;
@@ -47,6 +48,7 @@ pub use view::*;
 pub use textobject::*;
 pub use shell::*;
 pub use misc::*;
+pub use panel_keys::*;
 pub use typed::*;
 
 mod mappable;

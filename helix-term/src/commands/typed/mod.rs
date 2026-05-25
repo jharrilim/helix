@@ -26,6 +26,16 @@ pub(crate) use lifecycle::buffers_remaining_impl;
 
 pub use registry::{SHELL_COMPLETER, SHELL_SIGNATURE};
 
+/// Whether a typed command requires a focused document view or is safe from panel focus.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum FocusRequirement {
+    /// Safe when focus is on an auxiliary panel (agent, git, terminal) or a document view.
+    #[default]
+    Global,
+    /// Requires focus on a document view; dispatch rejects this from panel focus.
+    Document,
+}
+
 #[derive(Clone, Copy)]
 pub struct TypableCommand {
     pub name: &'static str,
@@ -34,6 +44,7 @@ pub struct TypableCommand {
     pub fun: fn(&mut compositor::Context, Args, PromptEvent) -> anyhow::Result<()>,
     pub completer: CommandCompleter,
     pub signature: Signature,
+    pub focus: FocusRequirement,
 }
 
 #[derive(Clone, Copy)]

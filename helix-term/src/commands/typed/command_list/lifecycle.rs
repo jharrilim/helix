@@ -1,8 +1,9 @@
 use helix_core::command_line::Signature;
 
 use crate::ui::completers;
+// Focus class: Global for quit/exit-all; Document for write variants.
 
-use super::{CommandCompleter, TypableCommand};
+use super::{CommandCompleter, FocusRequirement, TypableCommand};
 use super::{WRITE_NO_FORMAT_FLAG};
 use crate::commands::typed::lifecycle as cmd;
 
@@ -19,6 +20,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             flags: &[WRITE_NO_FORMAT_FLAG],
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "exit!",
@@ -31,6 +33,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             flags: &[WRITE_NO_FORMAT_FLAG],
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "quit",
@@ -42,6 +45,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "quit!",
@@ -53,6 +57,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "write",
@@ -65,6 +70,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             flags: &[WRITE_NO_FORMAT_FLAG],
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "write!",
@@ -77,6 +83,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             flags: &[WRITE_NO_FORMAT_FLAG],
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "write-buffer-close",
@@ -89,6 +96,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             flags: &[WRITE_NO_FORMAT_FLAG],
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "write-buffer-close!",
@@ -101,6 +109,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             flags: &[WRITE_NO_FORMAT_FLAG],
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "write-quit",
@@ -113,6 +122,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             flags: &[WRITE_NO_FORMAT_FLAG],
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "write-quit!",
@@ -125,6 +135,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             flags: &[WRITE_NO_FORMAT_FLAG],
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "write-all",
@@ -137,6 +148,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             flags: &[WRITE_NO_FORMAT_FLAG],
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "write-all!",
@@ -149,6 +161,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             flags: &[WRITE_NO_FORMAT_FLAG],
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "write-quit-all",
@@ -161,6 +174,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             flags: &[WRITE_NO_FORMAT_FLAG],
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "write-quit-all!",
@@ -173,6 +187,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             flags: &[WRITE_NO_FORMAT_FLAG],
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "quit-all",
@@ -184,6 +199,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "quit-all!",
@@ -195,6 +211,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "cquit",
@@ -206,6 +223,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "cquit!",
@@ -217,5 +235,6 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
 ];

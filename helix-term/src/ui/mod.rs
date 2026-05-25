@@ -22,6 +22,18 @@ mod statusline;
 mod text;
 mod text_decorations;
 
+pub(crate) use git::{move_selection_next, move_selection_prev};
+pub(crate) use agent::{
+    enter_insert_mode as agent_enter_insert_mode,
+    toggle_focused_collapsible_block as agent_toggle_collapsible_block,
+};
+pub(crate) use terminal::{
+    enter_insert_mode as terminal_enter_insert_mode,
+    scroll_lines_by as terminal_scroll_lines_by,
+    scroll_to_top_from_keymap as terminal_scroll_to_top,
+    scroll_to_bottom_from_keymap as terminal_scroll_to_bottom,
+};
+
 use crate::compositor::Compositor;
 use crate::filter_picker_entry;
 use crate::job::{self, Callback};
@@ -104,6 +116,11 @@ pub fn raw_regex_prompt(
     completion_fn: impl FnMut(&Editor, &str) -> Vec<prompt::Completion> + 'static,
     fun: impl Fn(&mut crate::compositor::Context, rope::Regex, &str, PromptEvent) + 'static,
 ) {
+    if !cx.editor.is_document_view_focused() {
+        cx.editor.set_error("command requires a document view");
+        return;
+    }
+
     let (view, doc) = current!(cx.editor);
     let doc_id = view.doc;
     let snapshot = doc.selection(view.id).clone();
@@ -491,6 +508,10 @@ pub mod completers {
 
     /// Completes names of language servers which are running for the current document.
     pub fn active_language_servers(editor: &Editor, input: &str) -> Vec<Completion> {
+        if !editor.is_document_view_focused() {
+            return Vec::new();
+        }
+
         let language_servers = doc!(editor).language_servers().map(|ls| ls.name());
 
         fuzzy_match(input, language_servers, false)
@@ -502,6 +523,10 @@ pub mod completers {
     /// Completes names of language servers which are configured for the language of the current
     /// document.
     pub fn configured_language_servers(editor: &Editor, input: &str) -> Vec<Completion> {
+        if !editor.is_document_view_focused() {
+            return Vec::new();
+        }
+
         let language_servers = doc!(editor)
             .language_config()
             .into_iter()
@@ -562,6 +587,10 @@ pub mod completers {
     }
 
     pub fn lsp_workspace_command(editor: &Editor, input: &str) -> Vec<Completion> {
+        if !editor.is_document_view_focused() {
+            return Vec::new();
+        }
+
         let commands = doc!(editor)
             .language_servers_with_feature(LanguageServerFeature::WorkspaceCommand)
             .flat_map(|ls| {

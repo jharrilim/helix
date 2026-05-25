@@ -1,6 +1,7 @@
 
+// Focus class: Document — shell commands use current selections.
 
-use super::TypableCommand;
+use super::{FocusRequirement, TypableCommand};
 use super::{SHELL_COMPLETER, SHELL_SIGNATURE};
 use crate::commands::typed::shell as cmd;
 
@@ -13,6 +14,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
         fun: cmd::insert_output,
         completer: SHELL_COMPLETER,
         signature: SHELL_SIGNATURE,
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "append-output",
@@ -21,6 +23,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
         fun: cmd::append_output,
         completer: SHELL_COMPLETER,
         signature: SHELL_SIGNATURE,
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "pipe",
@@ -29,6 +32,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
         fun: cmd::pipe,
         completer: SHELL_COMPLETER,
         signature: SHELL_SIGNATURE,
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "pipe-to",
@@ -37,6 +41,7 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
         fun: cmd::pipe_to,
         completer: SHELL_COMPLETER,
         signature: SHELL_SIGNATURE,
+        focus: FocusRequirement::Document,
     },
     TypableCommand {
         name: "run-shell-command",
@@ -45,5 +50,6 @@ pub(super) const COMMANDS: &[TypableCommand] = &[
         fun: cmd::run_shell_command,
         completer: SHELL_COMPLETER,
         signature: SHELL_SIGNATURE,
+        focus: FocusRequirement::Document,
     },
 ];

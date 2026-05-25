@@ -1,9 +1,10 @@
 use helix_core::command_line::Signature;
 
 
-use super::{CommandCompleter, TypableCommand};
+use super::{CommandCompleter, FocusRequirement, TypableCommand};
 use super::{AGENT_HISTORY_SIGNATURE};
 use crate::commands::typed::agent as cmd;
+// Focus class: Global — agent panel commands are safe from any focus.
 
 pub const COMMANDS: &[TypableCommand] = &[
     TypableCommand {
@@ -13,6 +14,7 @@ pub const COMMANDS: &[TypableCommand] = &[
         fun: cmd::typed_agent_open,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "agent-close",
@@ -21,6 +23,7 @@ pub const COMMANDS: &[TypableCommand] = &[
         fun: cmd::typed_agent_close,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "agent-focus",
@@ -29,6 +32,7 @@ pub const COMMANDS: &[TypableCommand] = &[
         fun: cmd::typed_agent_focus,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "agent-send",
@@ -37,6 +41,7 @@ pub const COMMANDS: &[TypableCommand] = &[
         fun: cmd::typed_agent_send,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "agent-stop",
@@ -45,6 +50,7 @@ pub const COMMANDS: &[TypableCommand] = &[
         fun: cmd::typed_agent_stop,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "agent-history",
@@ -53,6 +59,7 @@ pub const COMMANDS: &[TypableCommand] = &[
         fun: cmd::typed_agent_history,
         completer: CommandCompleter::none(),
         signature: AGENT_HISTORY_SIGNATURE,
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "agent-new",
@@ -61,6 +68,7 @@ pub const COMMANDS: &[TypableCommand] = &[
         fun: cmd::typed_agent_new,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+        focus: FocusRequirement::Global,
     },
     TypableCommand {
         name: "agent-mode",
@@ -72,5 +80,6 @@ pub const COMMANDS: &[TypableCommand] = &[
             positionals: (0, Some(1)),
             ..Signature::DEFAULT
         },
+        focus: FocusRequirement::Global,
     },
 ];
