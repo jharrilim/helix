@@ -444,11 +444,8 @@ impl Tree {
         node
     }
 
-    /// Split the focused leaf to add a git panel to its **left** (when layout is vertical).
-    pub fn split_git_panel(&mut self, layout: Layout) -> ViewId {
-        let focus = self.focus;
-        let parent = self.nodes[focus].parent;
-
+    /// Insert a git panel as the leftmost full-height column at the tree root.
+    pub fn split_git_panel(&mut self, _layout: Layout) -> ViewId {
         let node = Node::git_panel(GitPanel {
             id: ViewId::default(),
             area: Rect::default(),
@@ -462,53 +459,50 @@ impl Tree {
             panel.id = node;
         }
 
-        let container = match &mut self.nodes[parent] {
-            Node {
-                content: Content::Container(container),
-                ..
-            } => container,
+        let root = self.root;
+        let root_layout = match &self.nodes[root].content {
+            Content::Container(container) => container.layout,
             _ => unreachable!(),
         };
-        if container.layout == layout {
-            let pos = container
-                .children
-                .iter()
-                .position(|&child| child == focus)
-                .unwrap();
-            container.insert_child(pos, node);
-            self.nodes[node].parent = parent;
-        } else {
-            let mut split = Node::container(layout);
-            split.parent = parent;
-            let split = self.nodes.insert(split);
 
-            let container = match &mut self.nodes[split] {
-                Node {
-                    content: Content::Container(container),
-                    ..
-                } => container,
-                _ => unreachable!(),
-            };
-            container.push_child(node);
-            container.push_child(focus);
-            self.nodes[node].parent = split;
-            self.nodes[focus].parent = split;
+        match root_layout {
+            Layout::Vertical => {
+                let container = self.container_mut(root);
+                container.insert_child(0, node);
+                self.nodes[node].parent = root;
+            }
+            Layout::Horizontal => {
+                let (children, weights) = {
+                    let container = self.container_mut(root);
+                    (
+                        std::mem::take(&mut container.children),
+                        std::mem::take(&mut container.weights),
+                    )
+                };
 
-            let container = match &mut self.nodes[parent] {
-                Node {
-                    content: Content::Container(container),
-                    ..
-                } => container,
-                _ => unreachable!(),
-            };
+                let mut inner = Node::container(Layout::Horizontal);
+                inner.parent = root;
+                let inner_id = self.nodes.insert(inner);
 
-            let pos = container
-                .children
-                .iter()
-                .position(|&child| child == focus)
-                .unwrap();
+                {
+                    let inner_container = self.container_mut(inner_id);
+                    inner_container.children = children;
+                    inner_container.weights = if weights.len() == inner_container.children.len() {
+                        weights
+                    } else {
+                        vec![1.0; inner_container.children.len()]
+                    };
+                }
+                for child in self.container_mut(inner_id).children.clone() {
+                    self.nodes[child].parent = inner_id;
+                }
 
-            container.children[pos] = split;
+                let container = self.container_mut(root);
+                container.layout = Layout::Vertical;
+                container.children = vec![node, inner_id];
+                container.weights = vec![1.0, 1.0];
+                self.nodes[node].parent = root;
+            }
         }
 
         self.focus = node;
@@ -1749,6 +1743,30 @@ mod test {
         assert_eq!(panel.session_id, "session-1");
         assert!(panel.area.width > 0);
         assert!(panel.area.height > 0);
+    }
+
+    #[test]
+    fn split_git_panel_spans_full_height_from_nested_focus() {
+        let tree_area = Rect {
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 40,
+        };
+        let mut tree = Tree::new(tree_area);
+        tree.insert(View::new(DocumentId::default(), GutterConfig::default()));
+        tree.split(
+            View::new(DocumentId::default(), GutterConfig::default()),
+            Layout::Horizontal,
+        );
+        tree.focus = tree.prev();
+
+        let panel_id = tree.split_git_panel(Layout::Vertical);
+        let panel = tree.git_panel(panel_id).unwrap();
+
+        assert_eq!(panel.area.y, tree_area.y);
+        assert_eq!(panel.area.height, tree_area.height);
+        assert_eq!(panel.area.x, tree_area.x);
     }
 
     #[test]
