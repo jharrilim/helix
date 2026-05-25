@@ -20,10 +20,6 @@ impl Editor {
         self.config.load().integrated_terminal.clone()
     }
 
-    fn open_terminal_panel_id(&self) -> Option<ViewId> {
-        self.terminal.panel_id
-    }
-
     fn sync_terminal_panel_session_id(&mut self) {
         let Some(panel_id) = self.terminal.panel_id else {
             return;
@@ -55,30 +51,33 @@ impl Editor {
     }
 
     pub fn open_agent_panel(&mut self) {
+        self.open_agent_panel_with_focus(true);
+    }
+
+    pub fn open_agent_panel_with_focus(&mut self, focus_panel: bool) {
         if let Some(panel_id) = self.agent.panel_id {
-            if self.tree.focus != panel_id {
-                prepare_panel_focus(self);
+            if focus_panel {
+                if self.tree.focus != panel_id {
+                    prepare_panel_focus(self);
+                }
+                self.tree.focus = panel_id;
             }
-            self.tree.focus = panel_id;
             self.agent.focus = crate::agent::AgentFocus::Normal;
             return;
         }
 
-        let terminal_open = self.open_terminal_panel_id().is_some();
-        let layout = self.auxiliary_split_layout(terminal_open);
-        if let Some(terminal_panel) = self.open_terminal_panel_id() {
-            self.tree.focus = terminal_panel;
-        }
-
+        let document_focus = self.tree.focus;
         prepare_panel_focus(self);
-        let panel_id = self.tree.split_agent_panel(layout);
-        if layout == Layout::Vertical {
-            let fraction = self.agent_settings().panel_width_fraction();
-            self.tree.set_leaf_weight_fraction(panel_id, fraction);
-        }
+        let panel_id = self.tree.split_agent_panel(Layout::Vertical);
+        let fraction = self.agent_settings().panel_width_fraction();
+        self.tree.set_leaf_weight_fraction(panel_id, fraction);
         self.agent.panel_id = Some(panel_id);
         self.agent.focus = crate::agent::AgentFocus::Normal;
-        self.tree.focus = panel_id;
+        if focus_panel {
+            self.tree.focus = panel_id;
+        } else {
+            self.tree.focus = document_focus;
+        }
         self._refresh();
     }
 

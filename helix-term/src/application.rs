@@ -245,6 +245,10 @@ impl Application {
                 .unwrap_or_else(|_| editor.new_file(Action::VerticalSplit));
         }
 
+        if editor.agent_settings().enable && !cfg!(feature = "integration") {
+            editor.open_agent_panel_with_focus(false);
+        }
+
         #[cfg(windows)]
         let signals = futures_util::stream::empty();
         #[cfg(not(windows))]

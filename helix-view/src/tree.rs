@@ -368,97 +368,7 @@ impl Tree {
         node
     }
 
-    pub fn split_agent_panel(&mut self, layout: Layout) -> ViewId {
-        let focus = self.focus;
-        let parent = self.nodes[focus].parent;
-
-        let node = Node::agent_panel(AgentPanel {
-            id: ViewId::default(),
-            area: Rect::default(),
-        });
-        let node = self.nodes.insert(node);
-        if let Node {
-            content: Content::AgentPanel(panel),
-            ..
-        } = &mut self.nodes[node]
-        {
-            panel.id = node;
-        }
-
-        let container = match &mut self.nodes[parent] {
-            Node {
-                content: Content::Container(container),
-                ..
-            } => container,
-            _ => unreachable!(),
-        };
-        if container.layout == layout {
-            let pos = if container.children.is_empty() {
-                0
-            } else {
-                container
-                    .children
-                    .iter()
-                    .position(|&child| child == focus)
-                    .unwrap()
-                    + 1
-            };
-            container.insert_child(pos, node);
-            self.nodes[node].parent = parent;
-        } else {
-            let mut split = Node::container(layout);
-            split.parent = parent;
-            let split = self.nodes.insert(split);
-
-            let container = match &mut self.nodes[split] {
-                Node {
-                    content: Content::Container(container),
-                    ..
-                } => container,
-                _ => unreachable!(),
-            };
-            container.push_child(focus);
-            container.push_child(node);
-            self.nodes[focus].parent = split;
-            self.nodes[node].parent = split;
-
-            let container = match &mut self.nodes[parent] {
-                Node {
-                    content: Content::Container(container),
-                    ..
-                } => container,
-                _ => unreachable!(),
-            };
-
-            let pos = container
-                .children
-                .iter()
-                .position(|&child| child == focus)
-                .unwrap();
-
-            container.children[pos] = split;
-        }
-
-        self.focus = node;
-        self.recalculate();
-        node
-    }
-
-    /// Insert a git panel as the leftmost full-height column at the tree root.
-    pub fn split_git_panel(&mut self, _layout: Layout) -> ViewId {
-        let node = Node::git_panel(GitPanel {
-            id: ViewId::default(),
-            area: Rect::default(),
-        });
-        let node = self.nodes.insert(node);
-        if let Node {
-            content: Content::GitPanel(panel),
-            ..
-        } = &mut self.nodes[node]
-        {
-            panel.id = node;
-        }
-
+    fn insert_panel_at_root(&mut self, node: ViewId, leftmost: bool) {
         let root = self.root;
         let root_layout = match &self.nodes[root].content {
             Content::Container(container) => container.layout,
@@ -468,7 +378,11 @@ impl Tree {
         match root_layout {
             Layout::Vertical => {
                 let container = self.container_mut(root);
-                container.insert_child(0, node);
+                if leftmost {
+                    container.insert_child(0, node);
+                } else {
+                    container.push_child(node);
+                }
                 self.nodes[node].parent = root;
             }
             Layout::Horizontal => {
@@ -499,12 +413,54 @@ impl Tree {
 
                 let container = self.container_mut(root);
                 container.layout = Layout::Vertical;
-                container.children = vec![node, inner_id];
+                container.children = if leftmost {
+                    vec![node, inner_id]
+                } else {
+                    vec![inner_id, node]
+                };
                 container.weights = vec![1.0, 1.0];
                 self.nodes[node].parent = root;
             }
         }
+    }
 
+    /// Insert an agent panel as the leftmost full-height column at the tree root.
+    pub fn split_agent_panel(&mut self, _layout: Layout) -> ViewId {
+        let node = Node::agent_panel(AgentPanel {
+            id: ViewId::default(),
+            area: Rect::default(),
+        });
+        let node = self.nodes.insert(node);
+        if let Node {
+            content: Content::AgentPanel(panel),
+            ..
+        } = &mut self.nodes[node]
+        {
+            panel.id = node;
+        }
+
+        self.insert_panel_at_root(node, true);
+        self.focus = node;
+        self.recalculate();
+        node
+    }
+
+    /// Insert a git panel as the rightmost full-height column at the tree root.
+    pub fn split_git_panel(&mut self, _layout: Layout) -> ViewId {
+        let node = Node::git_panel(GitPanel {
+            id: ViewId::default(),
+            area: Rect::default(),
+        });
+        let node = self.nodes.insert(node);
+        if let Node {
+            content: Content::GitPanel(panel),
+            ..
+        } = &mut self.nodes[node]
+        {
+            panel.id = node;
+        }
+
+        self.insert_panel_at_root(node, false);
         self.focus = node;
         self.recalculate();
         node
@@ -1746,7 +1702,7 @@ mod test {
     }
 
     #[test]
-    fn split_git_panel_spans_full_height_from_nested_focus() {
+    fn split_git_panel_spans_full_height_on_right() {
         let tree_area = Rect {
             x: 0,
             y: 0,
@@ -1763,6 +1719,30 @@ mod test {
 
         let panel_id = tree.split_git_panel(Layout::Vertical);
         let panel = tree.git_panel(panel_id).unwrap();
+
+        assert_eq!(panel.area.y, tree_area.y);
+        assert_eq!(panel.area.height, tree_area.height);
+        assert_eq!(panel.area.right(), tree_area.right());
+    }
+
+    #[test]
+    fn split_agent_panel_spans_full_height_on_left() {
+        let tree_area = Rect {
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 40,
+        };
+        let mut tree = Tree::new(tree_area);
+        tree.insert(View::new(DocumentId::default(), GutterConfig::default()));
+        tree.split(
+            View::new(DocumentId::default(), GutterConfig::default()),
+            Layout::Horizontal,
+        );
+        tree.focus = tree.prev();
+
+        let panel_id = tree.split_agent_panel(Layout::Vertical);
+        let panel = tree.agent_panel(panel_id).unwrap();
 
         assert_eq!(panel.area.y, tree_area.y);
         assert_eq!(panel.area.height, tree_area.height);
