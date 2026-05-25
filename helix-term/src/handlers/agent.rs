@@ -739,11 +739,7 @@ impl AgentController {
                     }
                     if editor.agent.open_cursor_request {
                         editor.agent.open_cursor_request = false;
-                        if editor.agent.cursor_question_flow.is_some() {
-                            crate::ui::agent_cursor::resume_question_flow(editor);
-                        } else {
-                            crate::ui::agent_cursor::show_cursor_request_ui(editor);
-                        }
+                        crate::ui::agent_cursor::show_cursor_request_ui(editor);
                     }
                     if editor.agent.open_permission_picker {
                         editor.agent.open_permission_picker = false;

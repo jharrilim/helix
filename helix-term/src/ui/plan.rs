@@ -8,14 +8,14 @@ use helix_core::unicode::segmentation::UnicodeSegmentation;
 use helix_core::unicode::width::UnicodeWidthStr;
 use helix_view::{
     agent::AgentBlockKind,
-    graphics::{Modifier, Rect},
+    graphics::{Modifier, Rect, Style},
     input::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind},
     plan::PlanFooterFocus,
     Editor, ViewId,
 };
 use serde_json::json;
 use tui::buffer::Buffer as Surface;
-use tui::text::Span;
+use tui::text::{Span, Spans};
 use tui::widgets::{Block, Widget};
 
 use crate::agent;
@@ -26,9 +26,15 @@ const ACTION_BAR_HEIGHT: u16 = 1;
 const QUESTION_FOOTER_HEIGHT: u16 = 2;
 
 #[derive(Clone)]
+struct PlanSpan {
+    text: String,
+    style: Style,
+}
+
+#[derive(Clone)]
 struct PlanLine {
     text: String,
-    style: helix_view::graphics::Style,
+    spans: Vec<PlanSpan>,
 }
 
 struct PlanLayout {
@@ -136,50 +142,115 @@ fn render_markdown_lines(editor: &Editor, text: &str, width: usize) -> Vec<PlanL
         if line.0.is_empty() {
             lines.push(PlanLine {
                 text: String::new(),
-                style: text_style,
+                spans: Vec::new(),
             });
             continue;
         }
-        let plain: String = line.0.iter().map(|span| span.content.as_ref()).collect();
-        if width == 0 || plain.width() <= width {
-            lines.push(PlanLine {
-                text: plain,
-                style: text_style,
-            });
-            continue;
-        }
-        let mut current = String::new();
-        let mut current_width = 0usize;
-        for span in line.0 {
-            for grapheme in span.content.graphemes(true) {
-                let grapheme_width = grapheme.width();
-                if current_width > 0 && current_width + grapheme_width > width {
-                    lines.push(PlanLine {
-                        text: current.clone(),
-                        style: text_style,
-                    });
-                    current.clear();
-                    current_width = 0;
-                }
-                current.push_str(grapheme);
-                current_width += grapheme_width;
-            }
-        }
-        if !current.is_empty() {
-            lines.push(PlanLine {
-                text: current,
-                style: text_style,
-            });
-        }
+        append_wrapped_spans(line, width, text_style, &mut lines);
     }
 
     if lines.is_empty() {
         lines.push(PlanLine {
             text: String::new(),
-            style: text_style,
+            spans: Vec::new(),
         });
     }
     lines
+}
+
+fn append_wrapped_spans(
+    spans: Spans<'_>,
+    width: usize,
+    default_style: Style,
+    lines: &mut Vec<PlanLine>,
+) {
+    if width == 0 {
+        push_styled_line(
+            spans
+                .0
+                .into_iter()
+                .map(|span| PlanSpan {
+                    text: span.content.into_owned(),
+                    style: span.style,
+                })
+                .collect(),
+            lines,
+        );
+        return;
+    }
+
+    let mut current = Vec::new();
+    let mut current_width = 0usize;
+    for span in spans.0 {
+        let style = span.style;
+        for grapheme in span.content.graphemes(true) {
+            let grapheme_width = grapheme.width();
+            if current_width > 0 && current_width + grapheme_width > width {
+                push_styled_line(std::mem::take(&mut current), lines);
+                current_width = 0;
+            }
+            push_styled_segment(&mut current, grapheme, style);
+            current_width += grapheme_width;
+        }
+    }
+
+    push_styled_line(current, lines);
+
+    if lines.is_empty() {
+        lines.push(PlanLine {
+            text: String::new(),
+            spans: vec![PlanSpan {
+                text: String::new(),
+                style: default_style,
+            }],
+        });
+    }
+}
+
+fn push_styled_segment(spans: &mut Vec<PlanSpan>, text: &str, style: Style) {
+    if let Some(last) = spans.last_mut() {
+        if last.style == style {
+            last.text.push_str(text);
+            return;
+        }
+    }
+    spans.push(PlanSpan {
+        text: text.to_string(),
+        style,
+    });
+}
+
+fn push_styled_line(spans: Vec<PlanSpan>, lines: &mut Vec<PlanLine>) {
+    if spans.is_empty() {
+        return;
+    }
+    let text = spans.iter().map(|span| span.text.as_str()).collect();
+    lines.push(PlanLine { text, spans });
+}
+
+fn render_plan_line(surface: &mut Surface, x: u16, y: u16, width: u16, line: &PlanLine, default_style: Style) {
+    if line.spans.is_empty() {
+        surface.set_stringn(x, y, &line.text, width as usize, default_style);
+        return;
+    }
+
+    let mut display_x = 0u16;
+    for span in &line.spans {
+        for grapheme in span.text.graphemes(true) {
+            if display_x >= width {
+                return;
+            }
+            let grapheme_width = grapheme.width() as u16;
+            surface.set_stringn(
+                x + display_x,
+                y,
+                grapheme,
+                grapheme_width as usize,
+                span.style,
+            );
+            display_x = display_x.saturating_add(grapheme_width);
+        }
+    }
 }
 
 pub fn render(editor: &Editor, area: Rect, surface: &mut Surface, focused: bool) {
@@ -187,6 +258,7 @@ pub fn render(editor: &Editor, area: Rect, surface: &mut Surface, focused: bool)
     let border_style = super::panel_style::border_style(theme);
     let label_style = theme.get("ui.text");
     let prompt_style = theme.get("ui.help");
+    let text_style = theme.get("ui.text");
     let action_style = theme.get("ui.text");
     let action_focus_style = theme.get("ui.selection");
     let status_style = super::panel_style::statusline_style(theme, focused);
@@ -218,17 +290,25 @@ pub fn render(editor: &Editor, area: Rect, surface: &mut Surface, focused: bool)
         .enumerate()
     {
         let y = layout.body_area.y + row as u16;
-        surface.set_stringn(
+        render_plan_line(
+            surface,
             layout.body_area.x + 1,
             y,
-            &line.text,
-            layout.body_area.width.saturating_sub(2) as usize,
-            line.style,
+            layout.body_area.width.saturating_sub(2),
+            line,
+            text_style,
         );
     }
 
     if layout.question_area.height > 0 {
-        render_question_footer(editor, layout.question_area, surface, prompt_style, action_focus_style);
+        render_question_footer(
+            editor,
+            layout.question_area,
+            surface,
+            prompt_style,
+            action_focus_style,
+            status_style,
+        );
     }
 
     if layout.action_area.height > 0 {
@@ -240,8 +320,9 @@ fn render_question_footer(
     editor: &Editor,
     area: Rect,
     surface: &mut Surface,
-    prompt_style: helix_view::graphics::Style,
-    focus_style: helix_view::graphics::Style,
+    prompt_style: Style,
+    focus_style: Style,
+    status_style: Style,
 ) {
     let Some(flow) = editor.agent.cursor_question_flow.as_ref() else {
         return;
@@ -249,6 +330,27 @@ fn render_question_footer(
     let Some(question) = flow.questions.get(flow.index) else {
         return;
     };
+
+    surface.set_style(area, status_style);
+    let clear_width = area.width as usize;
+    if clear_width > 0 {
+        surface.set_stringn(
+            area.x,
+            area.y,
+            &" ".repeat(clear_width),
+            clear_width,
+            prompt_style,
+        );
+        if area.height > 1 {
+            surface.set_stringn(
+                area.x,
+                area.y + 1,
+                &" ".repeat(clear_width),
+                clear_width,
+                prompt_style,
+            );
+        }
+    }
 
     let title = flow
         .title

@@ -313,7 +313,6 @@ impl Editor {
         self.plan.panel_id = Some(plan_id);
         self.plan.stashed_editor_root = Some(editor_slot);
         self.plan.scroll = 0;
-        self.plan.footer_focus = crate::plan::PlanFooterFocus::Accept;
         self.tree.focus = plan_id;
         self._refresh();
     }

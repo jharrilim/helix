@@ -694,6 +694,37 @@ async fn question_option_advances_flow() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn ask_question_footer_focus_survives_plan_panel_open() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+
+    open_agent_panel(&mut app);
+    app.editor.agent.cursor_question_flow = Some(helix_view::agent::AgentQuestionFlow {
+        request_id: 3,
+        title: Some("Pick one".into()),
+        questions: vec![helix_view::agent::AgentQuestion {
+            id: "q1".into(),
+            prompt: "Which approach?".into(),
+            options: vec![helix_view::agent::AgentQuestionOption {
+                id: "a".into(),
+                label: "Option A".into(),
+            }],
+            allow_multiple: false,
+        }],
+        answers: Vec::new(),
+        index: 0,
+    });
+    app.editor.plan.footer_focus = helix_view::plan::PlanFooterFocus::QuestionOption(0);
+    app.editor.open_plan_panel();
+
+    assert!(matches!(
+        app.editor.plan.footer_focus,
+        helix_view::plan::PlanFooterFocus::QuestionOption(0)
+    ));
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn plan_accept_in_plan_mode_continues_after_end_turn() -> anyhow::Result<()> {
     let mut app = AppBuilder::new().build()?;
 

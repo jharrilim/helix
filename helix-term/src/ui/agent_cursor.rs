@@ -75,8 +75,9 @@ fn show_ask_question(editor: &mut Editor, request_id: u64, params: Value) {
     if editor.plan.title.is_none() && editor.plan.review.is_none() {
         editor.plan.title = Some("Agent questions".into());
     }
-    editor.plan.footer_focus = PlanFooterFocus::QuestionOption(0);
     editor.open_plan_panel();
+    editor.plan.footer_focus = PlanFooterFocus::QuestionOption(0);
+    editor.plan.scroll = 0;
     helix_event::request_redraw();
 }
 
@@ -109,9 +110,13 @@ fn show_create_plan(editor: &mut Editor, request_id: u64, params: Value) {
         name: plan_name,
         markdown: body,
     });
-    editor.plan.footer_focus = PlanFooterFocus::Accept;
-    editor.plan.scroll = 0;
     editor.open_plan_panel();
+    editor.plan.scroll = 0;
+    if editor.agent.cursor_question_flow.is_some() {
+        editor.plan.footer_focus = PlanFooterFocus::QuestionOption(0);
+    } else {
+        editor.plan.footer_focus = PlanFooterFocus::Accept;
+    }
     helix_event::request_redraw();
 }
 
