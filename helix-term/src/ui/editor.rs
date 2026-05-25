@@ -1183,9 +1183,14 @@ impl EditorView {
 
     pub(crate) fn handle_agent_normal_key(
         &mut self,
-        _cxt: &mut commands::Context,
-        _key: KeyEvent,
+        cxt: &mut commands::Context,
+        key: KeyEvent,
     ) -> bool {
+        if cxt.editor.agent.mode_menu_active
+            && crate::ui::agent_modes::handle_key(cxt.editor, key)
+        {
+            return true;
+        }
         false
     }
 
@@ -1702,6 +1707,12 @@ impl Component for EditorView {
 
                 // clear status
                 cx.editor.status_msg = None;
+
+                if cx.editor.agent.mode_menu_active
+                    && crate::ui::agent_modes::handle_key(cx.editor, key)
+                {
+                    return Self::event_with_callbacks(&mut cx);
+                }
 
                 let focused_kind = cx.editor.focused_leaf_kind();
                 let panel_leaf = focused_kind.filter(super::panel::is_auxiliary_panel);

@@ -4,6 +4,7 @@ mod panel;
 mod panel_style;
 pub(crate) mod terminal;
 pub mod terminal_tabs;
+pub mod agent_modes;
 pub mod agent_cursor;
 pub mod agent_permission;
 mod completion;

@@ -7,7 +7,7 @@ use helix_view::{agent::AgentSessionMeta, Editor};
 use super::Context;
 use crate::agent;
 use crate::compositor::Compositor;
-use crate::job::{Callback, Jobs};
+use crate::job::Jobs;
 use crate::ui::{overlay::overlaid, Picker, PickerColumn};
 
 pub fn agent_open_editor(editor: &mut Editor, jobs: &mut Jobs) {
@@ -29,6 +29,9 @@ pub fn agent_close_editor(editor: &mut Editor) {
 pub fn close_agent_panel_editor(editor: &mut Editor) {
     crate::ui::agent_cursor::cancel_pending_cursor_requests(editor);
     crate::ui::agent_permission::cancel_pending_permission(editor);
+    if editor.agent.mode_menu_active {
+        crate::ui::agent_modes::close(editor);
+    }
     agent::with_controller(|controller| controller.shutdown());
     editor.agent.active_session = None;
     editor.agent.mode = None;
@@ -311,27 +314,19 @@ pub fn agent_mode_editor(editor: &mut Editor, mode_id: Option<String>) {
 }
 
 pub fn open_mode_picker(cx: &mut Context) {
-    if cx.editor.agent.available_modes.is_empty() {
-        cx.editor.set_error("no agent modes available");
-        return;
+    if cx.editor.agent.mode_menu_active {
+        crate::ui::agent_modes::close(cx.editor);
+    } else {
+        crate::ui::agent_modes::open(cx.editor);
     }
-
-    cx.callback.push(Box::new(|compositor, cx| {
-        crate::ui::agent_cursor::show_mode_picker(cx.editor, compositor);
-    }));
 }
 
-pub fn open_mode_picker_from_jobs(editor: &mut Editor, jobs: &mut Jobs) {
-    if editor.agent.available_modes.is_empty() {
-        editor.set_error("no agent modes available");
-        return;
+pub fn open_mode_picker_from_jobs(editor: &mut Editor, _jobs: &mut Jobs) {
+    if editor.agent.mode_menu_active {
+        crate::ui::agent_modes::close(editor);
+    } else {
+        crate::ui::agent_modes::open(editor);
     }
-
-    jobs.callback(async move {
-        Ok(Callback::EditorCompositor(Box::new(|editor, compositor| {
-            crate::ui::agent_cursor::show_mode_picker(editor, compositor);
-        })))
-    });
 }
 
 pub fn agent_mode(cx: &mut Context) {

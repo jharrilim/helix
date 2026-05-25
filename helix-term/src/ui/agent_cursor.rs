@@ -6,7 +6,7 @@ use helix_acp::{
     METHOD_ASK_QUESTION, METHOD_CREATE_PLAN,
 };
 use helix_view::{
-    agent::{AgentBlockKind, AgentModeMeta, AgentQuestionOption},
+    agent::{AgentBlockKind, AgentQuestionOption},
     Editor,
 };
 use serde_json::{json, Value};
@@ -15,35 +15,10 @@ use tui::widgets::Row;
 
 use crate::agent;
 use crate::compositor::Compositor;
-use crate::ui::{overlay::overlaid, Markdown, Picker, PickerColumn, Popup, Select};
+use crate::ui::{overlay::overlaid, Markdown, Popup, Select};
 use crate::ui::prompt::PromptEvent;
 
 use super::menu::Item;
-
-pub fn show_mode_picker(editor: &mut Editor, compositor: &mut Compositor) {
-    let modes = editor.agent.available_modes.clone();
-    if modes.is_empty() {
-        editor.set_error("no agent modes available");
-        return;
-    }
-
-    let columns = [PickerColumn::new("mode", |item: &AgentModeMeta, _| {
-        item.name.as_str().into()
-    })];
-
-    let picker = Picker::new(columns, 0, modes, (), move |cx, mode, _action| {
-        agent::with_controller(|controller| {
-            controller.send(helix_acp::AgentCommand::SetMode {
-                mode_id: mode.id.clone(),
-            });
-        });
-        cx.editor.agent.mode = Some(mode.id.clone());
-        cx.editor.set_status(format!("agent mode: {}", mode.name));
-    })
-    .truncate_start(false);
-
-    compositor.push(Box::new(overlaid(picker)));
-}
 
 pub fn show_cursor_request_ui(editor: &mut Editor, compositor: &mut Compositor) {
     let Some(request) = editor.agent.cursor_request.take() else {

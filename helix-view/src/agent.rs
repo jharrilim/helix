@@ -262,6 +262,8 @@ pub struct AgentState {
     pub mode: Option<String>,
     /// Available session modes reported by the agent.
     pub available_modes: Vec<AgentModeMeta>,
+    /// When true, show the agent mode infobox and accept mode selection keys.
+    pub mode_menu_active: bool,
     /// Blocking Cursor extension request awaiting UI response.
     pub cursor_request: Option<AgentCursorRequest>,
     /// When true, show the Cursor extension UI on the next event dispatch.
