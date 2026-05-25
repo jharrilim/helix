@@ -261,7 +261,7 @@ impl Application {
         ])
         .context("build signal handler")?;
 
-        let app = Self {
+        let mut app = Self {
             compositor,
             terminal,
             editor,
@@ -271,6 +271,15 @@ impl Application {
             lsp_progress: LspProgressMap::new(),
             theme_mode,
         };
+
+        if app.editor.agent_settings().enable
+            && !cfg!(feature = "integration")
+            && app.editor.agent.is_open()
+        {
+            if let Err(err) = crate::agent::ensure_runtime(&mut app.editor, &mut app.jobs) {
+                app.editor.set_error(format!("{err:#}"));
+            }
+        }
 
         Ok(app)
     }

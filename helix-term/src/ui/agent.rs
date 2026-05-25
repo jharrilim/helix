@@ -1136,6 +1136,7 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> bool {
             editor.agent.clear_transcript_selection();
             editor.agent.input.insert(editor.agent.input_cursor, c);
             editor.agent.input_cursor += c.len_utf8();
+            helix_event::request_redraw();
             true
         }
         KeyCode::Left => {

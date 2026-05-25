@@ -590,6 +590,15 @@ pub fn send_prompt(controller: &AgentController, editor: &mut Editor, text: Stri
     if text.is_empty() {
         return;
     }
+    if !controller.is_running() {
+        editor.set_error("agent is not running (use :agent-open)");
+        return;
+    }
+    if editor.agent.active_session.is_none() {
+        ensure_session(controller, editor);
+        editor.set_status("starting agent session...");
+        return;
+    }
     editor.agent.prompt_history.push_front(text.clone());
     editor.agent.history_pos = None;
     editor.agent.input.clear();
