@@ -520,6 +520,17 @@ fn render_transcript(
             error_style,
             thought_style,
         );
+        if line_fills_row_background(line.kind) {
+            surface.set_style(
+                Rect {
+                    x: area.x,
+                    y,
+                    width: area.width,
+                    height: 1,
+                },
+                base_style,
+            );
+        }
         render_line_with_selection(
             surface,
             area.x,
@@ -556,6 +567,16 @@ fn append_debug_lines(width: usize, editor: &Editor, lines: &mut Vec<TranscriptL
         }
     }
     lines.push(blank_line());
+}
+
+fn line_fills_row_background(kind: TranscriptLineKind) -> bool {
+    matches!(
+        kind,
+        TranscriptLineKind::ToolHeader
+            | TranscriptLineKind::ToolBody
+            | TranscriptLineKind::ShellHeader
+            | TranscriptLineKind::ShellBody
+    )
 }
 
 fn line_style(
