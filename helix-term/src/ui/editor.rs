@@ -1925,6 +1925,8 @@ impl Component for EditorView {
             );
         }
 
+        crate::ui::terminal::resize_panels(cx.editor);
+
         let terminal_panels: Vec<_> = cx
             .editor
             .tree
@@ -1947,8 +1949,6 @@ impl Component for EditorView {
                 surface.set_style(divider, style);
             }
         }
-
-        crate::ui::terminal::resize_panels(cx.editor);
 
         if config.auto_info {
             if let Some(mut info) = cx.editor.autoinfo.take() {

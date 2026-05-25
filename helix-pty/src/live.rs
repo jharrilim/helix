@@ -98,6 +98,13 @@ impl SessionHandle {
     }
 
     pub fn resize(&self, rows: u16, cols: u16) {
+        let rows = rows.max(1);
+        let cols = cols.max(2);
+        let size = TermSize {
+            columns: cols as usize,
+            screen_lines: rows as usize,
+        };
+        self.with_term_mut(|term| term.resize(size));
         let _ = self.input.send(Msg::Resize(WindowSize {
             num_lines: rows,
             num_cols: cols,

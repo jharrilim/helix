@@ -1194,12 +1194,10 @@ pub fn resize_panels(editor: &Editor) {
         return;
     };
     let (rows, cols) = grid_size(panel.area);
-    if let Some(session_id) = editor.terminal.active_session.as_ref() {
-        crate::terminal::send(helix_pty::TerminalCommand::Resize {
-            id: session_id.clone().into(),
-            rows,
-            cols,
-        });
+    for session_id in &editor.terminal.session_order {
+        if let Some(handle) = crate::terminal::session_handle(session_id) {
+            handle.resize(rows, cols);
+        }
     }
 }
 
