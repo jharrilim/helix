@@ -1194,6 +1194,14 @@ impl EditorView {
         false
     }
 
+    pub(crate) fn handle_plan_normal_key(
+        &mut self,
+        cxt: &mut commands::Context,
+        key: KeyEvent,
+    ) -> bool {
+        crate::ui::plan::handle_normal_key(cxt.editor, key)
+    }
+
     pub(crate) fn handle_terminal_normal_key(
         &mut self,
         cxt: &mut commands::Context,
@@ -1930,6 +1938,22 @@ impl Component for EditorView {
             crate::ui::panel::render(
                 cx.editor,
                 helix_view::tree::LeafKind::AgentPanel,
+                area,
+                surface,
+                is_focused,
+            );
+        }
+
+        let plan_panels: Vec<_> = cx
+            .editor
+            .tree
+            .plan_panels()
+            .map(|(panel, focused)| (panel.area, focused))
+            .collect();
+        for (area, is_focused) in plan_panels {
+            crate::ui::panel::render(
+                cx.editor,
+                helix_view::tree::LeafKind::PlanPanel,
                 area,
                 surface,
                 is_focused,

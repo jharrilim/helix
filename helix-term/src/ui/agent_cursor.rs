@@ -2,32 +2,25 @@
 
 use helix_acp::{
     CursorAskQuestionOutcome, CursorAskQuestionRequest, CursorAskQuestionResponse,
-    CursorCreatePlanOutcome, CursorCreatePlanRequest, CursorCreatePlanResponse,
-    METHOD_ASK_QUESTION, METHOD_CREATE_PLAN,
+    CursorCreatePlanRequest, METHOD_ASK_QUESTION, METHOD_CREATE_PLAN,
 };
 use helix_view::{
-    agent::{AgentBlockKind, AgentQuestionOption},
+    agent::AgentQuestionOption,
+    plan::{PlanFooterFocus, PlanReview},
     Editor,
 };
 use serde_json::{json, Value};
-use tui::text::Span;
-use tui::widgets::Row;
 
-use crate::agent;
-use crate::compositor::Compositor;
-use crate::ui::{overlay::overlaid, Markdown, Popup, Select};
-use crate::ui::prompt::PromptEvent;
+use crate::ui::plan;
 
-use super::menu::Item;
-
-pub fn show_cursor_request_ui(editor: &mut Editor, compositor: &mut Compositor) {
+pub fn show_cursor_request_ui(editor: &mut Editor) {
     let Some(request) = editor.agent.cursor_request.take() else {
         return;
     };
 
     match request.method.as_str() {
-        METHOD_ASK_QUESTION => show_ask_question(editor, compositor, request.request_id, request.params),
-        METHOD_CREATE_PLAN => show_create_plan(editor, compositor, request.request_id, request.params),
+        METHOD_ASK_QUESTION => show_ask_question(editor, request.request_id, request.params),
+        METHOD_CREATE_PLAN => show_create_plan(editor, request.request_id, request.params),
         other => {
             editor.set_error(format!("unsupported cursor request: {other}"));
             respond_cursor(request.request_id, json!({ "outcome": { "outcome": "cancelled" } }));
@@ -35,12 +28,7 @@ pub fn show_cursor_request_ui(editor: &mut Editor, compositor: &mut Compositor) 
     }
 }
 
-fn show_ask_question(
-    editor: &mut Editor,
-    compositor: &mut Compositor,
-    request_id: u64,
-    params: Value,
-) {
+fn show_ask_question(editor: &mut Editor, request_id: u64, params: Value) {
     let Ok(request) = serde_json::from_value::<CursorAskQuestionRequest>(params) else {
         editor.set_error("failed to parse cursor/ask_question request");
         respond_cursor(request_id, json!({ "outcome": { "outcome": "cancelled" } }));
@@ -84,109 +72,15 @@ fn show_ask_question(
         index: 0,
     });
 
-    show_next_question(editor, compositor);
-}
-
-fn show_next_question(editor: &mut Editor, compositor: &mut Compositor) {
-    let Some(flow) = editor.agent.cursor_question_flow.as_ref() else {
-        return;
-    };
-    let Some(question) = flow.questions.get(flow.index) else {
-        finish_question_flow(editor);
-        return;
-    };
-
-    let title = flow
-        .title
-        .clone()
-        .unwrap_or_else(|| "Agent question".into());
-    let prompt = question.prompt.clone();
-    let options: Vec<QuestionPickerItem> = question
-        .options
-        .iter()
-        .map(|option| QuestionPickerItem {
-            id: option.id.clone(),
-            label: option.label.clone(),
-        })
-        .collect();
-
-    if options.is_empty() {
-        editor.set_error("cursor question has no options");
-        cancel_question_flow(editor);
-        return;
+    if editor.plan.title.is_none() && editor.plan.review.is_none() {
+        editor.plan.title = Some("Agent questions".into());
     }
-
-    let select = Select::new(
-        format!("{title}\n\n{prompt}"),
-        options,
-        (),
-        move |editor, option, event| match event {
-            PromptEvent::Validate => {
-                let Some(flow) = editor.agent.cursor_question_flow.as_mut() else {
-                    return;
-                };
-                flow.answers.push(helix_view::agent::AgentQuestionAnswer {
-                    question_id: flow.questions[flow.index].id.clone(),
-                    selected_option_ids: vec![option.id.clone()],
-                });
-                flow.index += 1;
-                if flow.index >= flow.questions.len() {
-                    finish_question_flow(editor);
-                } else {
-                    editor.agent.open_cursor_request = true;
-                }
-            }
-            PromptEvent::Abort => cancel_question_flow(editor),
-            PromptEvent::Update => {}
-        },
-    );
-
-    compositor.replace_or_push("cursor-ask-question", overlaid(select));
+    editor.plan.footer_focus = PlanFooterFocus::QuestionOption(0);
+    editor.open_plan_panel();
+    helix_event::request_redraw();
 }
 
-fn finish_question_flow(editor: &mut Editor) {
-    let Some(flow) = editor.agent.cursor_question_flow.take() else {
-        return;
-    };
-    let response = CursorAskQuestionResponse {
-        outcome: CursorAskQuestionOutcome::Answered {
-            answers: flow
-                .answers
-                .into_iter()
-                .map(|answer| helix_acp::CursorQuestionAnswer {
-                    question_id: answer.question_id,
-                    selected_option_ids: answer.selected_option_ids,
-                })
-                .collect(),
-        },
-    };
-    respond_cursor(
-        flow.request_id,
-        serde_json::to_value(response).unwrap_or_else(|_| {
-            json!({ "outcome": { "outcome": "cancelled" } })
-        }),
-    );
-}
-
-fn cancel_question_flow(editor: &mut Editor) {
-    let Some(flow) = editor.agent.cursor_question_flow.take() else {
-        return;
-    };
-    respond_cursor(
-        flow.request_id,
-        serde_json::to_value(CursorAskQuestionResponse {
-            outcome: CursorAskQuestionOutcome::Cancelled,
-        })
-        .unwrap_or_else(|_| json!({ "outcome": { "outcome": "cancelled" } })),
-    );
-}
-
-fn show_create_plan(
-    editor: &mut Editor,
-    compositor: &mut Compositor,
-    request_id: u64,
-    params: Value,
-) {
+fn show_create_plan(editor: &mut Editor, request_id: u64, params: Value) {
     let Ok(request) = serde_json::from_value::<CursorCreatePlanRequest>(params) else {
         editor.set_error("failed to parse cursor/create_plan request");
         respond_cursor(request_id, json!({ "outcome": { "outcome": "cancelled" } }));
@@ -194,7 +88,6 @@ fn show_create_plan(
     };
 
     let plan_name = request.name.clone();
-    let tool_call_id = request.tool_call_id.clone();
     let mut body = String::new();
     if let Some(name) = &plan_name {
         body.push_str(&format!("# {name}\n\n"));
@@ -210,120 +103,22 @@ fn show_create_plan(
         }
     }
 
-    let plan_name_for_accept = plan_name.clone();
-    let plan_body_for_accept = body.clone();
-    let markdown = Markdown::new(body, editor.syn_loader.clone());
-    compositor.push(Box::new(overlaid(
-        Popup::new("agent-plan-review", markdown).auto_close(true),
-    )));
-
-    let request_id_copy = request_id;
-    let select = Select::new(
-        "Review agent plan",
-        vec![
-            PlanChoice {
-                label: "Accept plan",
-                accepted: true,
-            },
-            PlanChoice {
-                label: "Reject plan",
-                accepted: false,
-            },
-            PlanChoice {
-                label: "Cancel",
-                accepted: false,
-            },
-        ],
-        (),
-        move |editor, choice, event| match event {
-            PromptEvent::Validate => {
-                let response = if choice.accepted {
-                    let plan_uri = crate::handlers::agent::write_accepted_plan(
-                        editor,
-                        plan_name_for_accept.as_deref(),
-                        &tool_call_id,
-                        &plan_body_for_accept,
-                    );
-                    if editor.agent.mode.as_deref() != Some("agent") {
-                        editor.agent.continue_after_plan_accept = true;
-                    }
-                    CursorCreatePlanResponse {
-                        outcome: CursorCreatePlanOutcome::Accepted { plan_uri },
-                    }
-                } else if choice.label == "Reject plan" {
-                    CursorCreatePlanResponse {
-                        outcome: CursorCreatePlanOutcome::Rejected {
-                            reason: Some("rejected by user".into()),
-                        },
-                    }
-                } else {
-                    CursorCreatePlanResponse {
-                        outcome: CursorCreatePlanOutcome::Cancelled,
-                    }
-                };
-                respond_cursor(
-                    request_id_copy,
-                    serde_json::to_value(response).unwrap_or_else(|_| {
-                        json!({ "outcome": { "outcome": "cancelled" } })
-                    }),
-                );
-                if choice.accepted {
-                    let label = plan_name_for_accept
-                        .as_ref()
-                        .map(|name| format!("Plan accepted: {name}"))
-                        .unwrap_or_else(|| "Plan accepted".into());
-                    editor.agent.push_block(AgentBlockKind::System { text: label });
-                }
-                editor.set_status("agent plan reviewed");
-            }
-            PromptEvent::Abort => {
-                respond_cursor(
-                    request_id_copy,
-                    serde_json::to_value(CursorCreatePlanResponse {
-                        outcome: CursorCreatePlanOutcome::Cancelled,
-                    })
-                    .unwrap_or_else(|_| json!({ "outcome": { "outcome": "cancelled" } })),
-                );
-            }
-            PromptEvent::Update => {}
-        },
-    );
-
-    compositor.push(Box::new(overlaid(select)));
+    editor.plan.review = Some(PlanReview {
+        request_id,
+        tool_call_id: request.tool_call_id,
+        name: plan_name,
+        markdown: body,
+    });
+    editor.plan.footer_focus = PlanFooterFocus::Accept;
+    editor.plan.scroll = 0;
+    editor.open_plan_panel();
+    helix_event::request_redraw();
 }
 
 fn respond_cursor(request_id: u64, result: Value) {
-    agent::with_controller(|controller| {
+    crate::agent::with_controller(|controller| {
         controller.respond_cursor(request_id, result);
     });
-}
-
-#[derive(Clone)]
-struct QuestionPickerItem {
-    id: String,
-    label: String,
-}
-
-impl Item for QuestionPickerItem {
-    type Data = ();
-
-    fn format(&self, _data: &Self::Data) -> Row<'_> {
-        Row::new(vec![Span::raw(self.label.clone())])
-    }
-}
-
-#[derive(Clone)]
-struct PlanChoice {
-    label: &'static str,
-    accepted: bool,
-}
-
-impl Item for PlanChoice {
-    type Data = ();
-
-    fn format(&self, _data: &Self::Data) -> Row<'_> {
-        Row::new(vec![Span::raw(self.label)])
-    }
 }
 
 trait CursorTodoStatusLabel {
@@ -342,14 +137,17 @@ impl CursorTodoStatusLabel for helix_acp::CursorTodo {
 }
 
 pub fn cancel_pending_cursor_requests(editor: &mut Editor) {
-    if let Some(flow) = editor.agent.cursor_question_flow.take() {
-        respond_cursor(
-            flow.request_id,
-            serde_json::to_value(CursorAskQuestionResponse {
-                outcome: CursorAskQuestionOutcome::Cancelled,
-            })
-            .unwrap_or_else(|_| json!({ "outcome": { "outcome": "cancelled" } })),
-        );
+    if editor.agent.cursor_question_flow.is_some() {
+        plan::cancel_question_flow(editor);
+    } else if editor.plan.review.is_some() {
+        let request_id = editor.plan.review.as_ref().map(|review| review.request_id);
+        editor.plan.review = None;
+        if let Some(request_id) = request_id {
+            respond_cursor(
+                request_id,
+                json!({ "outcome": { "outcome": "cancelled" } }),
+            );
+        }
     }
     if let Some(request) = editor.agent.cursor_request.take() {
         respond_cursor(
@@ -358,10 +156,15 @@ pub fn cancel_pending_cursor_requests(editor: &mut Editor) {
         );
     }
     editor.agent.open_cursor_request = false;
+    editor.close_plan_panel();
 }
 
-pub fn resume_question_flow(editor: &mut Editor, compositor: &mut Compositor) {
+pub fn resume_question_flow(editor: &mut Editor) {
     if editor.agent.cursor_question_flow.is_some() {
-        show_next_question(editor, compositor);
+        editor.plan.footer_focus = PlanFooterFocus::QuestionOption(0);
+        if !editor.plan.is_open() {
+            editor.open_plan_panel();
+        }
+        helix_event::request_redraw();
     }
 }

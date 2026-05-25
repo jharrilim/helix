@@ -11,10 +11,11 @@ use helix_view::{
 };
 use tui::buffer::Buffer as Surface;
 
-use super::{agent, git, terminal, EditorView};
+use super::{agent, git, plan, terminal, EditorView};
 
-const PANEL_HIT_ORDER: [LeafKind; 3] = [
+const PANEL_HIT_ORDER: [LeafKind; 4] = [
     LeafKind::GitPanel,
+    LeafKind::PlanPanel,
     LeafKind::AgentPanel,
     LeafKind::TerminalPanel,
 ];
@@ -36,6 +37,7 @@ fn panel_at_coords_kind(
 ) -> Option<ViewId> {
     match kind {
         LeafKind::GitPanel => git::panel_at_coords(editor, row, column),
+        LeafKind::PlanPanel => plan::panel_at_coords(editor, row, column),
         LeafKind::AgentPanel => agent::panel_at_coords(editor, row, column),
         LeafKind::TerminalPanel => terminal::panel_at_coords(editor, row, column),
         LeafKind::View => None,
@@ -45,6 +47,7 @@ fn panel_at_coords_kind(
 pub fn handle_mouse(editor: &mut Editor, kind: LeafKind, event: MouseEvent) -> EventResult {
     match kind {
         LeafKind::GitPanel => git::handle_mouse(editor, event),
+        LeafKind::PlanPanel => plan::handle_mouse(editor, event),
         LeafKind::AgentPanel => agent::handle_mouse(editor, event),
         LeafKind::TerminalPanel => terminal::handle_mouse(editor, event),
         LeafKind::View => EventResult::Ignored(None),
@@ -55,7 +58,7 @@ pub fn handle_insert_key(editor: &mut Editor, kind: LeafKind, key: KeyEvent) -> 
     match kind {
         LeafKind::AgentPanel => agent::handle_key(editor, key),
         LeafKind::TerminalPanel => terminal::handle_key(editor, key),
-        LeafKind::GitPanel | LeafKind::View => false,
+        LeafKind::GitPanel | LeafKind::PlanPanel | LeafKind::View => false,
     }
 }
 
@@ -67,6 +70,7 @@ pub fn handle_normal_key(
 ) -> bool {
     match kind {
         LeafKind::GitPanel => view.handle_git_normal_key(cx, key),
+        LeafKind::PlanPanel => view.handle_plan_normal_key(cx, key),
         LeafKind::AgentPanel => view.handle_agent_normal_key(cx, key),
         LeafKind::TerminalPanel => view.handle_terminal_normal_key(cx, key),
         LeafKind::View => false,
@@ -82,6 +86,7 @@ pub fn render(
 ) {
     match kind {
         LeafKind::GitPanel => git::render(editor, area, surface, focused),
+        LeafKind::PlanPanel => plan::render(editor, area, surface, focused),
         LeafKind::AgentPanel => agent::render(editor, area, surface, focused),
         LeafKind::TerminalPanel => terminal::render(editor, area, surface, focused),
         LeafKind::View => {}
@@ -95,7 +100,7 @@ pub fn cursor(
     input_focused: bool,
 ) -> (Option<Position>, CursorKind) {
     match kind {
-        LeafKind::GitPanel => (None, CursorKind::Hidden),
+        LeafKind::GitPanel | LeafKind::PlanPanel => (None, CursorKind::Hidden),
         LeafKind::AgentPanel if input_focused => agent::cursor(editor, area),
         LeafKind::TerminalPanel if input_focused => terminal::cursor(editor, area),
         LeafKind::AgentPanel | LeafKind::TerminalPanel => (None, CursorKind::Hidden),
@@ -107,7 +112,7 @@ pub fn panel_input_focused(editor: &Editor, kind: LeafKind) -> bool {
     match kind {
         LeafKind::AgentPanel => editor.agent_input_focused(),
         LeafKind::TerminalPanel => editor.terminal_input_focused(),
-        LeafKind::GitPanel | LeafKind::View => false,
+        LeafKind::GitPanel | LeafKind::PlanPanel | LeafKind::View => false,
     }
 }
 
@@ -141,6 +146,6 @@ pub fn panel_wants_off_area_event(editor: &Editor, kind: LeafKind, event: &Mouse
                     .as_ref()
                     .is_some_and(|sel| sel.dragging || matches!(event.kind, MouseEventKind::Up(_)))
         }
-        LeafKind::GitPanel | LeafKind::View => false,
+        LeafKind::GitPanel | LeafKind::PlanPanel | LeafKind::View => false,
     }
 }

@@ -1,6 +1,7 @@
 mod agent;
 mod git;
 mod panel;
+pub mod plan;
 mod panel_style;
 pub(crate) mod terminal;
 pub mod terminal_tabs;
@@ -29,6 +30,7 @@ pub(crate) use agent::{
     enter_insert_mode as agent_enter_insert_mode,
     toggle_focused_collapsible_block as agent_toggle_collapsible_block,
 };
+pub(crate) use plan::{footer_activate as plan_footer_activate, page_down as plan_page_down, page_up as plan_page_up};
 pub(crate) use terminal::{
     enter_insert_mode as terminal_enter_insert_mode,
     scroll_lines_by as terminal_scroll_lines_by,

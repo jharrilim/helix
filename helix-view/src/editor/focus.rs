@@ -99,6 +99,9 @@ impl Editor {
             FocusTarget::Git(id) => {
                 self.tree.focus = id;
             }
+            FocusTarget::Plan(id) => {
+                self.tree.focus = id;
+            }
         }
     }
 

@@ -67,6 +67,10 @@ pub(crate) fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent
         cx.editor.close_git_panel();
         return Ok(());
     }
+    if cx.editor.tree.is_plan_panel(cx.editor.tree.focus) {
+        crate::ui::plan::cancel_plan_flow(cx.editor);
+        return Ok(());
+    }
 
     // last view and we have unsaved changes
     if cx.editor.tree.views().count() == 1 {
@@ -99,6 +103,10 @@ pub(crate) fn force_quit(cx: &mut compositor::Context, _args: Args, event: Promp
     }
     if cx.editor.tree.is_git_panel(cx.editor.tree.focus) {
         cx.editor.close_git_panel();
+        return Ok(());
+    }
+    if cx.editor.tree.is_plan_panel(cx.editor.tree.focus) {
+        crate::ui::plan::cancel_plan_flow(cx.editor);
         return Ok(());
     }
 

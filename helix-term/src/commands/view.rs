@@ -117,6 +117,11 @@ pub fn wclose(cx: &mut Context) {
         return;
     }
 
+    if cx.editor.tree.is_plan_panel(cx.editor.tree.focus) {
+        crate::ui::plan::cancel_plan_flow(cx.editor);
+        return;
+    }
+
     if cx.editor.tree.views().count() == 1 {
         if let Err(err) = typed::buffers_remaining_impl(cx.editor) {
             cx.editor.set_error(err.to_string());

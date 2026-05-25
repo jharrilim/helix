@@ -9,6 +9,7 @@ pub enum FocusTarget {
     Agent(ViewId),
     Git(ViewId),
     Terminal(ViewId),
+    Plan(ViewId),
 }
 
 impl FocusTarget {
@@ -17,7 +18,8 @@ impl FocusTarget {
             Self::Document(id)
             | Self::Agent(id)
             | Self::Git(id)
-            | Self::Terminal(id) => *id,
+            | Self::Terminal(id)
+            | Self::Plan(id) => *id,
         }
     }
 
@@ -27,6 +29,7 @@ impl FocusTarget {
             LeafKind::AgentPanel => Self::Agent(id),
             LeafKind::GitPanel => Self::Git(id),
             LeafKind::TerminalPanel => Self::Terminal(id),
+            LeafKind::PlanPanel => Self::Plan(id),
         }
     }
 
@@ -36,6 +39,7 @@ impl FocusTarget {
             Self::Agent(_) => LeafKind::AgentPanel,
             Self::Git(_) => LeafKind::GitPanel,
             Self::Terminal(_) => LeafKind::TerminalPanel,
+            Self::Plan(_) => LeafKind::PlanPanel,
         }
     }
 

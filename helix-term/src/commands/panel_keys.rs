@@ -77,3 +77,25 @@ pub fn terminal_panel_tab_menu(cx: &mut Context) {
 pub fn terminal_panel_close(cx: &mut Context) {
     crate::commands::terminal::close_terminal_panel_editor(cx.editor);
 }
+
+// --- Plan panel ---
+
+pub fn plan_panel_page_up(cx: &mut Context) {
+    crate::ui::plan_page_up(cx.editor);
+}
+
+pub fn plan_panel_page_down(cx: &mut Context) {
+    crate::ui::plan_page_down(cx.editor);
+}
+
+pub fn plan_panel_activate(cx: &mut Context) {
+    crate::ui::plan_footer_activate(cx.editor);
+}
+
+pub fn plan_panel_close(cx: &mut Context) {
+    crate::ui::plan::cancel_plan_flow(cx.editor);
+}
+
+pub fn plan_panel_focus_agent(cx: &mut Context) {
+    cx.editor.focus_agent_panel();
+}

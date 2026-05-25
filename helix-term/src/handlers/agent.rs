@@ -740,9 +740,9 @@ impl AgentController {
                     if editor.agent.open_cursor_request {
                         editor.agent.open_cursor_request = false;
                         if editor.agent.cursor_question_flow.is_some() {
-                            crate::ui::agent_cursor::resume_question_flow(editor, compositor);
+                            crate::ui::agent_cursor::resume_question_flow(editor);
                         } else {
-                            crate::ui::agent_cursor::show_cursor_request_ui(editor, compositor);
+                            crate::ui::agent_cursor::show_cursor_request_ui(editor);
                         }
                     }
                     if editor.agent.open_permission_picker {
@@ -928,6 +928,8 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
             editor.agent.permission_gated_tools.clear();
             editor.agent.granted_tool_permissions.clear();
             editor.agent.deferred_tool_shell.clear();
+            editor.plan.review = None;
+            editor.close_plan_panel();
             editor.agent.status = Some("agent session closed".into());
         }
         AgentEvent::Authenticated { method_id } => {

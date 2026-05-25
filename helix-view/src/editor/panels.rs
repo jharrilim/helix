@@ -284,4 +284,100 @@ impl Editor {
         self.git.error = Some(error);
         self._refresh();
     }
+
+    pub fn open_plan_panel(&mut self) {
+        if self.plan.panel_id.is_some() {
+            if let Some(panel_id) = self.plan.panel_id {
+                if self.tree.focus != panel_id {
+                    prepare_panel_focus(self);
+                }
+                self.tree.focus = panel_id;
+            }
+            self._refresh();
+            return;
+        }
+
+        let Some((editor_slot, _index)) = self.tree.find_editor_slot_at_root() else {
+            self.set_error("could not open plan panel: editor layout unavailable");
+            return;
+        };
+
+        prepare_panel_focus(self);
+        let plan_id = self.tree.create_plan_panel();
+        if !self.tree.replace_root_child(editor_slot, plan_id) {
+            self.tree.discard_node(plan_id);
+            self.set_error("could not open plan panel: failed to swap editor area");
+            return;
+        }
+
+        self.plan.panel_id = Some(plan_id);
+        self.plan.stashed_editor_root = Some(editor_slot);
+        self.plan.scroll = 0;
+        self.plan.footer_focus = crate::plan::PlanFooterFocus::Accept;
+        self.tree.focus = plan_id;
+        self._refresh();
+    }
+
+    pub fn close_plan_panel(&mut self) {
+        let Some(panel_id) = self.plan.panel_id.take() else {
+            return;
+        };
+
+        if self.tree.focus == panel_id {
+            if let Some(agent_panel) = self.agent.panel_id {
+                self.tree.focus = agent_panel;
+            } else if let Some(stashed) = self.plan.stashed_editor_root {
+                if self.tree.contains(stashed) {
+                    let focus = self
+                        .tree
+                        .views()
+                        .map(|(view, _)| view.id)
+                        .next()
+                        .unwrap_or(stashed);
+                    self.tree.focus = focus;
+                } else {
+                    self.tree.focus = self.tree.prev();
+                }
+            } else {
+                self.tree.focus = self.tree.prev();
+            }
+        }
+
+        if let Some(stashed) = self.plan.stashed_editor_root.take() {
+            let _ = self.tree.replace_root_child(panel_id, stashed);
+            self.tree.discard_node(panel_id);
+        } else if self.tree.contains(panel_id) {
+            self.tree.remove(panel_id);
+        }
+
+        self.plan.clear_review();
+        self._refresh();
+    }
+
+    pub fn focus_plan_panel(&mut self) {
+        if let Some(panel_id) = self.plan.panel_id {
+            if self.tree.focus != panel_id {
+                prepare_panel_focus(self);
+            }
+            self.tree.focus = panel_id;
+        }
+    }
+
+    pub fn focus_editor_from_plan(&mut self) {
+        if self.tree.is_plan_panel(self.tree.focus) {
+            if let Some(stashed) = self.plan.stashed_editor_root {
+                if self.tree.contains(stashed) {
+                    let focus = self
+                        .tree
+                        .views()
+                        .map(|(view, _)| view.id)
+                        .next()
+                        .unwrap_or(stashed);
+                    self.tree.focus = focus;
+                    return;
+                }
+            }
+            self.tree.focus = self.tree.prev();
+        }
+    }
 }

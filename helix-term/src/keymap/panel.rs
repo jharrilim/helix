@@ -76,10 +76,21 @@ pub fn terminal_panel() -> KeyTrie {
     }))
 }
 
+pub fn plan_panel() -> KeyTrie {
+    with_shared(keymap!({ "Plan panel"
+        "pageup" => plan_panel_page_up,
+        "pagedown" => plan_panel_page_down,
+        "ret" => plan_panel_activate,
+        "esc" => plan_panel_close,
+        "q" => plan_panel_close,
+    }))
+}
+
 pub fn default() -> HashMap<LeafKind, KeyTrie> {
     hashmap! {
         LeafKind::GitPanel => git_panel(),
         LeafKind::AgentPanel => agent_panel(),
         LeafKind::TerminalPanel => terminal_panel(),
+        LeafKind::PlanPanel => plan_panel(),
     }
 }

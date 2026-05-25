@@ -16,6 +16,7 @@ pub mod handlers;
 pub mod info;
 pub mod input;
 pub mod keyboard;
+pub mod plan;
 pub mod register;
 pub mod terminal;
 pub mod theme;
@@ -80,11 +81,12 @@ pub use agent::{
     ShellBlockStatus,
 };
 pub use git::{GitActionRects, GitSelection, GitState};
+pub use plan::{PlanFooterFocus, PlanReview, PlanState};
 pub use terminal::{TerminalFocus, TerminalSettings, TerminalState};
 pub use document::Document;
 pub use editor::Editor;
 pub use focus::FocusTarget;
 use helix_core::char_idx_at_visual_offset;
 pub use theme::Theme;
-pub use tree::{AgentPanel, GitPanel, LeafKind, ResizeAxis, ResizeHandle, TerminalPanel};
+pub use tree::{AgentPanel, GitPanel, LeafKind, PlanPanel, ResizeAxis, ResizeHandle, TerminalPanel};
 pub use view::View;

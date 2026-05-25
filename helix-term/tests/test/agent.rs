@@ -626,6 +626,74 @@ async fn agent_assistant_chunks_merge_into_one_block() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn create_plan_opens_plan_panel() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+
+    open_agent_panel(&mut app);
+    app.editor.plan.review = Some(helix_view::PlanReview {
+        request_id: 1,
+        tool_call_id: "call-plan".into(),
+        name: Some("Test plan".into()),
+        markdown: "# Test plan\n\nDo things.".into(),
+    });
+    app.editor.open_plan_panel();
+
+    assert!(app.editor.plan.is_open());
+    let panel_id = app.editor.plan.panel_id.expect("plan panel id");
+    assert!(app.editor.tree.is_plan_panel(panel_id));
+    assert!(app.editor.plan.stashed_editor_root.is_some());
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn question_option_advances_flow() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+
+    open_agent_panel(&mut app);
+    app.editor.agent.cursor_question_flow = Some(helix_view::agent::AgentQuestionFlow {
+        request_id: 2,
+        title: Some("Pick one".into()),
+        questions: vec![
+            helix_view::agent::AgentQuestion {
+                id: "q1".into(),
+                prompt: "First?".into(),
+                options: vec![helix_view::agent::AgentQuestionOption {
+                    id: "a".into(),
+                    label: "A".into(),
+                }],
+                allow_multiple: false,
+            },
+            helix_view::agent::AgentQuestion {
+                id: "q2".into(),
+                prompt: "Second?".into(),
+                options: vec![helix_view::agent::AgentQuestionOption {
+                    id: "b".into(),
+                    label: "B".into(),
+                }],
+                allow_multiple: false,
+            },
+        ],
+        answers: Vec::new(),
+        index: 0,
+    });
+    app.editor.open_plan_panel();
+
+    helix_term::ui::plan::select_question_option(&mut app.editor, 0);
+
+    let flow = app
+        .editor
+        .agent
+        .cursor_question_flow
+        .as_ref()
+        .expect("question flow");
+    assert_eq!(flow.index, 1);
+    assert_eq!(flow.answers.len(), 1);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn plan_accept_in_plan_mode_continues_after_end_turn() -> anyhow::Result<()> {
     let mut app = AppBuilder::new().build()?;
 

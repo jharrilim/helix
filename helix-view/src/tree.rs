@@ -15,6 +15,7 @@ pub enum LeafKind {
     AgentPanel,
     GitPanel,
     TerminalPanel,
+    PlanPanel,
 }
 
 /// Agent chat panel leaf in the split tree.
@@ -37,6 +38,13 @@ pub struct TerminalPanel {
     pub id: ViewId,
     pub area: Rect,
     pub session_id: String,
+}
+
+/// Agent plan review panel leaf in the split tree.
+#[derive(Debug)]
+pub struct PlanPanel {
+    pub id: ViewId,
+    pub area: Rect,
 }
 
 // the dimensions are recomputed on window resize/tree change.
@@ -67,6 +75,7 @@ pub enum Content {
     AgentPanel(AgentPanel),
     GitPanel(GitPanel),
     TerminalPanel(TerminalPanel),
+    PlanPanel(PlanPanel),
     Container(Box<Container>),
 }
 
@@ -78,6 +87,7 @@ impl Content {
             Self::AgentPanel(_) => Some(LeafKind::AgentPanel),
             Self::GitPanel(_) => Some(LeafKind::GitPanel),
             Self::TerminalPanel(_) => Some(LeafKind::TerminalPanel),
+            Self::PlanPanel(_) => Some(LeafKind::PlanPanel),
             Self::Container(_) => None,
         }
     }
@@ -89,6 +99,7 @@ impl Content {
             Self::AgentPanel(panel) => Some(panel.area),
             Self::GitPanel(panel) => Some(panel.area),
             Self::TerminalPanel(panel) => Some(panel.area),
+            Self::PlanPanel(panel) => Some(panel.area),
             Self::Container(_) => None,
         }
     }
@@ -100,6 +111,7 @@ impl Content {
             Self::AgentPanel(panel) => panel.area = area,
             Self::GitPanel(panel) => panel.area = area,
             Self::TerminalPanel(panel) => panel.area = area,
+            Self::PlanPanel(panel) => panel.area = area,
             Self::Container(_) => {}
         }
     }
@@ -110,6 +122,7 @@ impl Content {
             Self::AgentPanel(panel) => Some(panel.id),
             Self::GitPanel(panel) => Some(panel.id),
             Self::TerminalPanel(panel) => Some(panel.id),
+            Self::PlanPanel(panel) => Some(panel.id),
             Self::Container(_) => None,
         }
     }
@@ -148,6 +161,13 @@ impl Node {
         Self {
             parent: ViewId::default(),
             content: Content::TerminalPanel(panel),
+        }
+    }
+
+    pub fn plan_panel(panel: PlanPanel) -> Self {
+        Self {
+            parent: ViewId::default(),
+            content: Content::PlanPanel(panel),
         }
     }
 }
@@ -576,6 +596,15 @@ impl Tree {
         }
     }
 
+    /// Removes a node from the slotmap without adjusting the tree structure.
+    /// Use after swapping a leaf out of the tree.
+    pub fn discard_node(&mut self, id: ViewId) {
+        if self.focus == id {
+            self.focus = self.prev();
+        }
+        self.nodes.remove(id);
+    }
+
     pub fn remove(&mut self, index: ViewId) {
         if self.focus == index {
             // focus on something else
@@ -743,6 +772,113 @@ impl Tree {
             } => Some((panel, focus == key)),
             _ => None,
         })
+    }
+
+    pub fn is_plan_panel(&self, index: ViewId) -> bool {
+        matches!(
+            self.nodes.get(index),
+            Some(Node {
+                content: Content::PlanPanel(_),
+                ..
+            })
+        )
+    }
+
+    pub fn plan_panel(&self, index: ViewId) -> Option<&PlanPanel> {
+        match self.nodes.get(index) {
+            Some(Node {
+                content: Content::PlanPanel(panel),
+                ..
+            }) => Some(panel),
+            _ => None,
+        }
+    }
+
+    pub fn plan_panel_mut(&mut self, index: ViewId) -> Option<&mut PlanPanel> {
+        match self.nodes.get_mut(index) {
+            Some(Node {
+                content: Content::PlanPanel(panel),
+                ..
+            }) => Some(panel),
+            _ => None,
+        }
+    }
+
+    pub fn plan_panels(&self) -> impl Iterator<Item = (&PlanPanel, bool)> {
+        let focus = self.focus;
+        self.nodes.iter().filter_map(move |(key, node)| match node {
+            Node {
+                content: Content::PlanPanel(panel),
+                ..
+            } => Some((panel, focus == key)),
+            _ => None,
+        })
+    }
+
+    pub fn is_auxiliary_panel(&self, index: ViewId) -> bool {
+        matches!(
+            self.leaf_kind(index),
+            Some(
+                LeafKind::AgentPanel
+                    | LeafKind::GitPanel
+                    | LeafKind::TerminalPanel
+                    | LeafKind::PlanPanel
+            )
+        )
+    }
+
+    /// Returns the editor slot at the tree root (view leaf or horizontal editor container).
+    pub fn find_editor_slot_at_root(&self) -> Option<(ViewId, usize)> {
+        let Content::Container(container) = &self.nodes[self.root].content else {
+            return None;
+        };
+        if container.layout != Layout::Vertical {
+            return None;
+        }
+        container.children.iter().enumerate().find_map(|(index, &child)| {
+            (!self.is_auxiliary_panel(child)).then_some((child, index))
+        })
+    }
+
+    /// Returns the editor container child at the tree root (horizontal split of views).
+    pub fn find_editor_container_at_root(&self) -> Option<(ViewId, usize)> {
+        self.find_editor_slot_at_root().filter(|(id, _)| {
+            matches!(
+                self.nodes.get(*id).map(|node| &node.content),
+                Some(Content::Container(_))
+            )
+        })
+    }
+
+    pub fn create_plan_panel(&mut self) -> ViewId {
+        let node = Node::plan_panel(PlanPanel {
+            id: ViewId::default(),
+            area: Rect::default(),
+        });
+        let node = self.nodes.insert(node);
+        if let Node {
+            content: Content::PlanPanel(panel),
+            ..
+        } = &mut self.nodes[node]
+        {
+            panel.id = node;
+        }
+        node
+    }
+
+    /// Replaces a direct child of the tree root with another node, preserving weight.
+    pub fn replace_root_child(&mut self, old_id: ViewId, new_id: ViewId) -> bool {
+        let root = self.root;
+        let Content::Container(container) = &mut self.nodes[root].content else {
+            return false;
+        };
+        let Some(pos) = container.children.iter().position(|&id| id == old_id) else {
+            return false;
+        };
+        container.children[pos] = new_id;
+        self.nodes[new_id].parent = root;
+        self.recalculate();
+        true
     }
 
     /// Get reference to a [View] by index.
@@ -938,7 +1074,7 @@ impl Tree {
         // Parent must always be a container
         let parent_container = match &self.nodes[parent].content {
             Content::Container(container) => container,
-            Content::View(_) | Content::AgentPanel(_) | Content::GitPanel(_) | Content::TerminalPanel(_) => unreachable!(),
+            Content::View(_) | Content::AgentPanel(_) | Content::GitPanel(_) | Content::TerminalPanel(_) | Content::PlanPanel(_) => unreachable!(),
         };
 
         match (direction, parent_container.layout) {
@@ -1360,7 +1496,7 @@ impl<'a> Iterator for Traverse<'a> {
 
             match &node.content {
                 Content::View(view) => return Some((key, view)),
-                Content::AgentPanel(_) | Content::GitPanel(_) | Content::TerminalPanel(_) => continue,
+                Content::AgentPanel(_) | Content::GitPanel(_) | Content::TerminalPanel(_) | Content::PlanPanel(_) => continue,
                 Content::Container(container) => {
                     self.stack.extend(container.children.iter().rev());
                 }
@@ -1378,7 +1514,7 @@ impl DoubleEndedIterator for Traverse<'_> {
 
             match &node.content {
                 Content::View(view) => return Some((key, view)),
-                Content::AgentPanel(_) | Content::GitPanel(_) | Content::TerminalPanel(_) => continue,
+                Content::AgentPanel(_) | Content::GitPanel(_) | Content::TerminalPanel(_) | Content::PlanPanel(_) => continue,
                 Content::Container(container) => {
                     self.stack.extend(container.children.iter());
                 }
@@ -1409,7 +1545,7 @@ impl<'a> Iterator for LeafTraverse<'a> {
             let key = self.stack.pop()?;
             let node = &self.tree.nodes[key];
             match &node.content {
-                Content::View(_) | Content::AgentPanel(_) | Content::GitPanel(_) | Content::TerminalPanel(_) => {
+                Content::View(_) | Content::AgentPanel(_) | Content::GitPanel(_) | Content::TerminalPanel(_) | Content::PlanPanel(_) => {
                     return Some((key, ()))
                 }
                 Content::Container(container) => {
@@ -1426,7 +1562,7 @@ impl DoubleEndedIterator for LeafTraverse<'_> {
             let key = self.stack.pop()?;
             let node = &self.tree.nodes[key];
             match &node.content {
-                Content::View(_) | Content::AgentPanel(_) | Content::GitPanel(_) | Content::TerminalPanel(_) => {
+                Content::View(_) | Content::AgentPanel(_) | Content::GitPanel(_) | Content::TerminalPanel(_) | Content::PlanPanel(_) => {
                     return Some((key, ()))
                 }
                 Content::Container(container) => {
@@ -1747,6 +1883,45 @@ mod test {
         assert_eq!(panel.area.y, tree_area.y);
         assert_eq!(panel.area.height, tree_area.height);
         assert_eq!(panel.area.x, tree_area.x);
+    }
+
+    #[test]
+    fn plan_panel_swap_replaces_editor_container() {
+        let tree_area = Rect {
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 40,
+        };
+        let mut tree = Tree::new(tree_area);
+        tree.insert(View::new(DocumentId::default(), GutterConfig::default()));
+        tree.split(
+            View::new(DocumentId::default(), GutterConfig::default()),
+            Layout::Horizontal,
+        );
+        tree.focus = tree.prev();
+        let _agent_id = tree.split_agent_panel(Layout::Vertical);
+
+        let (editor_root, _) = tree
+            .find_editor_container_at_root()
+            .expect("editor container at root");
+        let plan_id = tree.create_plan_panel();
+        assert!(tree.replace_root_child(editor_root, plan_id));
+        assert!(tree.is_plan_panel(plan_id));
+
+        let root_children = match &tree.nodes[tree.root].content {
+            Content::Container(container) => container.children.clone(),
+            _ => panic!("expected root container"),
+        };
+        assert!(root_children.contains(&plan_id));
+        assert!(!root_children.contains(&editor_root));
+
+        assert!(tree.replace_root_child(plan_id, editor_root));
+        tree.discard_node(plan_id);
+        let (restored, _) = tree
+            .find_editor_container_at_root()
+            .expect("editor container restored");
+        assert_eq!(restored, editor_root);
     }
 
     #[test]
