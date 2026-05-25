@@ -29,12 +29,19 @@ use helix_view::{
     graphics::{Color, CursorKind, Modifier, Rect, Style},
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     keyboard::{KeyCode, KeyModifiers},
-    tree::LeafKind,
+    tree::{LeafKind, ResizeAxis, ResizeHandle},
     Document, Editor, Theme, View,
 };
 use std::{mem::take, num::NonZeroUsize, ops, path::PathBuf, rc::Rc};
 
 use tui::{buffer::Buffer as Surface, text::Span};
+
+#[derive(Debug, Clone, Copy)]
+struct SplitResizeDrag {
+    handle: ResizeHandle,
+    axis: ResizeAxis,
+    last_pos: u16,
+}
 
 pub struct EditorView {
     pub keymaps: Keymaps,
@@ -46,6 +53,7 @@ pub struct EditorView {
     spinners: ProgressSpinners,
     /// Tracks if the terminal window is focused by reaction to terminal focus events
     terminal_focused: bool,
+    split_resize: Option<SplitResizeDrag>,
 }
 
 #[derive(Debug, Clone)]
@@ -70,6 +78,7 @@ impl EditorView {
             completion: None,
             spinners: ProgressSpinners::default(),
             terminal_focused: true,
+            split_resize: None,
         }
     }
 
@@ -1281,11 +1290,80 @@ impl EditorView {
         self.pseudo_pending.clear();
     }
 
+    fn handle_split_resize_mouse(
+        &mut self,
+        event: &MouseEvent,
+        cxt: &mut commands::Context,
+    ) -> Option<EventResult> {
+        let MouseEvent {
+            kind,
+            row,
+            column,
+            ..
+        } = *event;
+
+        match kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if let Some((handle, axis)) =
+                    cxt.editor.tree.resize_handle_at(row, column)
+                {
+                    let last_pos = match axis {
+                        ResizeAxis::Vertical => column,
+                        ResizeAxis::Horizontal => row,
+                    };
+                    self.split_resize = Some(SplitResizeDrag {
+                        handle,
+                        axis,
+                        last_pos,
+                    });
+                    return Some(EventResult::Consumed(None));
+                }
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if let Some(drag) = self.split_resize {
+                    let delta = match drag.axis {
+                        ResizeAxis::Vertical => column as i16 - drag.last_pos as i16,
+                        ResizeAxis::Horizontal => row as i16 - drag.last_pos as i16,
+                    };
+                    if delta != 0
+                        && cxt.editor.tree.adjust_resize(drag.handle, delta)
+                    {
+                        self.split_resize = Some(SplitResizeDrag {
+                            handle: drag.handle,
+                            axis: drag.axis,
+                            last_pos: match drag.axis {
+                                ResizeAxis::Vertical => column,
+                                ResizeAxis::Horizontal => row,
+                            },
+                        });
+                    }
+                    return Some(EventResult::Consumed(None));
+                }
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                if self.split_resize.take().is_some() {
+                    return Some(EventResult::Consumed(None));
+                }
+            }
+            _ => {}
+        }
+
+        if self.split_resize.is_some() && !matches!(kind, MouseEventKind::Moved) {
+            return Some(EventResult::Consumed(None));
+        }
+
+        None
+    }
+
     fn handle_mouse_event(
         &mut self,
         event: &MouseEvent,
         cxt: &mut commands::Context,
     ) -> EventResult {
+        if let Some(result) = self.handle_split_resize_mouse(event, cxt) {
+            return result;
+        }
+
         if let Some((kind, _)) = super::panel::panel_at_coords(cxt.editor, event.row, event.column) {
             if !matches!(event.kind, MouseEventKind::Moved) {
                 return super::panel::handle_mouse(cxt.editor, kind, *event);
@@ -1843,6 +1921,14 @@ impl Component for EditorView {
                 is_focused,
             );
         }
+
+        if let Some(drag) = &self.split_resize {
+            if let Some(divider) = cx.editor.tree.resize_divider_area(drag.handle) {
+                let style = cx.editor.theme.get("ui.selection.active");
+                surface.set_style(divider, style);
+            }
+        }
+
         crate::ui::terminal::resize_panels(cx.editor);
 
         if config.auto_info {

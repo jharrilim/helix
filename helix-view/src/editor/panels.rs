@@ -72,6 +72,10 @@ impl Editor {
 
         prepare_panel_focus(self);
         let panel_id = self.tree.split_agent_panel(layout);
+        if layout == Layout::Vertical {
+            let fraction = self.agent_settings().panel_width_fraction();
+            self.tree.set_leaf_weight_fraction(panel_id, fraction);
+        }
         self.agent.panel_id = Some(panel_id);
         self.agent.focus = crate::agent::AgentFocus::Normal;
         self.tree.focus = panel_id;
@@ -144,6 +148,10 @@ impl Editor {
 
         prepare_panel_focus(self);
         let panel_id = self.tree.split_terminal_panel(layout, session_id.clone());
+        if layout == Layout::Vertical {
+            let fraction = self.agent_settings().panel_width_fraction();
+            self.tree.set_leaf_weight_fraction(panel_id, fraction);
+        }
         self.terminal.panel_id = Some(panel_id);
         self.terminal.focus = crate::terminal::TerminalFocus::Normal;
         self.tree.focus = panel_id;

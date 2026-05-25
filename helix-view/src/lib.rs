@@ -86,5 +86,5 @@ pub use editor::Editor;
 pub use focus::FocusTarget;
 use helix_core::char_idx_at_visual_offset;
 pub use theme::Theme;
-pub use tree::{AgentPanel, GitPanel, LeafKind, TerminalPanel};
+pub use tree::{AgentPanel, GitPanel, LeafKind, ResizeAxis, ResizeHandle, TerminalPanel};
 pub use view::View;

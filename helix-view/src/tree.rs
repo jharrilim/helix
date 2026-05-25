@@ -167,11 +167,32 @@ pub enum Direction {
     Right,
 }
 
+/// Axis along which a split divider is dragged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResizeAxis {
+    /// Vertical split (panes side-by-side); drag adjusts column boundary.
+    Vertical,
+    /// Horizontal split (panes stacked); drag adjusts row boundary.
+    Horizontal,
+}
+
+/// Identifies a draggable divider between two siblings in a container.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResizeHandle {
+    pub container_id: ViewId,
+    pub divider_index: usize,
+}
+
+/// Minimum width or height in cells for any leaf after resizing.
+const MIN_LEAF_SIZE: u16 = 10;
+
 #[derive(Debug)]
 pub struct Container {
     layout: Layout,
     children: Vec<ViewId>,
     area: Rect,
+    /// Flex weights for each child; always `len == children.len()`.
+    weights: Vec<f32>,
 }
 
 impl Container {
@@ -180,6 +201,32 @@ impl Container {
             layout,
             children: Vec::new(),
             area: Rect::default(),
+            weights: Vec::new(),
+        }
+    }
+
+    fn ensure_weights(&mut self) {
+        if self.weights.len() != self.children.len() {
+            self.weights = vec![1.0; self.children.len()];
+        }
+    }
+
+    fn insert_child(&mut self, pos: usize, child: ViewId) {
+        self.children.insert(pos, child);
+        self.ensure_weights();
+        self.weights.insert(pos, 1.0);
+    }
+
+    fn push_child(&mut self, child: ViewId) {
+        self.children.push(child);
+        self.ensure_weights();
+        self.weights.push(1.0);
+    }
+
+    fn remove_child(&mut self, pos: usize) {
+        self.children.remove(pos);
+        if pos < self.weights.len() {
+            self.weights.remove(pos);
         }
     }
 }
@@ -238,7 +285,7 @@ impl Tree {
             pos + 1
         };
 
-        container.children.insert(pos, node);
+        container.insert_child(pos, node);
         // focus the new node
         self.focus = node;
 
@@ -275,7 +322,7 @@ impl Tree {
                     .unwrap();
                 pos + 1
             };
-            container.children.insert(pos, node);
+            container.insert_child(pos, node);
             self.nodes[node].parent = parent;
         } else {
             let mut split = Node::container(layout);
@@ -289,8 +336,8 @@ impl Tree {
                 } => container,
                 _ => unreachable!(),
             };
-            container.children.push(focus);
-            container.children.push(node);
+            container.push_child(focus);
+            container.push_child(node);
             self.nodes[focus].parent = split;
             self.nodes[node].parent = split;
 
@@ -356,7 +403,7 @@ impl Tree {
                     .unwrap()
                     + 1
             };
-            container.children.insert(pos, node);
+            container.insert_child(pos, node);
             self.nodes[node].parent = parent;
         } else {
             let mut split = Node::container(layout);
@@ -370,8 +417,8 @@ impl Tree {
                 } => container,
                 _ => unreachable!(),
             };
-            container.children.push(focus);
-            container.children.push(node);
+            container.push_child(focus);
+            container.push_child(node);
             self.nodes[focus].parent = split;
             self.nodes[node].parent = split;
 
@@ -428,7 +475,7 @@ impl Tree {
                 .iter()
                 .position(|&child| child == focus)
                 .unwrap();
-            container.children.insert(pos, node);
+            container.insert_child(pos, node);
             self.nodes[node].parent = parent;
         } else {
             let mut split = Node::container(layout);
@@ -442,8 +489,8 @@ impl Tree {
                 } => container,
                 _ => unreachable!(),
             };
-            container.children.push(node);
-            container.children.push(focus);
+            container.push_child(node);
+            container.push_child(focus);
             self.nodes[node].parent = split;
             self.nodes[focus].parent = split;
 
@@ -505,7 +552,7 @@ impl Tree {
                     .unwrap()
                     + 1
             };
-            container.children.insert(pos, node);
+            container.insert_child(pos, node);
             self.nodes[node].parent = parent;
         } else {
             let mut split = Node::container(layout);
@@ -519,8 +566,8 @@ impl Tree {
                 } => container,
                 _ => unreachable!(),
             };
-            container.children.push(focus);
-            container.children.push(node);
+            container.push_child(focus);
+            container.push_child(node);
             self.nodes[focus].parent = split;
             self.nodes[node].parent = split;
 
@@ -575,7 +622,7 @@ impl Tree {
             container.children[pos] = new;
             self.nodes[new].parent = parent;
         } else {
-            container.children.remove(pos);
+            container.remove_child(pos);
         }
     }
 
@@ -840,44 +887,45 @@ impl Tree {
 
         self.stack.push((self.root, self.area));
 
-        // take the area
-        // fetch the node
-        // a) node is view, give it whole area
-        // b) node is container, calculate areas for each child and push them on the stack
-
         while let Some((key, area)) = self.stack.pop() {
             let node = &mut self.nodes[key];
 
             if node.content.leaf_kind().is_some() {
                 node.content.set_leaf_area(area);
             } else if let Content::Container(container) = &mut node.content {
-                    // debug!!("setting container area {:?}", area);
                     container.area = area;
+                    container.ensure_weights();
 
                     match container.layout {
                         Layout::Horizontal => {
                             let len = container.children.len();
-
-                            let height = area.height / len as u16;
+                            let total_weight: f32 = container.weights.iter().sum();
+                            let total_weight = if total_weight > 0.0 {
+                                total_weight
+                            } else {
+                                len as f32
+                            };
 
                             let mut child_y = area.y;
 
                             for (i, child) in container.children.iter().enumerate() {
-                                let mut area = Rect::new(
+                                let mut child_height = if i == len - 1 {
+                                    container.area.y + container.area.height - child_y
+                                } else {
+                                    let fraction = container.weights[i] / total_weight;
+                                    (area.height as f32 * fraction).floor() as u16
+                                };
+                                child_height = child_height.max(1);
+
+                                let child_area = Rect::new(
                                     container.area.x,
                                     child_y,
                                     container.area.width,
-                                    height,
+                                    child_height,
                                 );
-                                child_y += height;
+                                child_y = child_y.saturating_add(child_height);
 
-                                // last child takes the remaining width because we can get uneven
-                                // space from rounding
-                                if i == len - 1 {
-                                    area.height = container.area.y + container.area.height - area.y;
-                                }
-
-                                self.stack.push((*child, area));
+                                self.stack.push((*child, child_area));
                             }
                         }
                         Layout::Vertical => {
@@ -886,28 +934,35 @@ impl Tree {
 
                             let inner_gap = 1u16;
                             let total_gap = inner_gap * len_u16.saturating_sub(2);
-
                             let used_area = area.width.saturating_sub(total_gap);
-                            let width = used_area / len_u16;
+
+                            let total_weight: f32 = container.weights.iter().sum();
+                            let total_weight = if total_weight > 0.0 {
+                                total_weight
+                            } else {
+                                len as f32
+                            };
 
                             let mut child_x = area.x;
 
                             for (i, child) in container.children.iter().enumerate() {
-                                let mut area = Rect::new(
+                                let mut child_width = if i == len - 1 {
+                                    container.area.x + container.area.width - child_x
+                                } else {
+                                    let fraction = container.weights[i] / total_weight;
+                                    (used_area as f32 * fraction).floor() as u16
+                                };
+                                child_width = child_width.max(1);
+
+                                let child_area = Rect::new(
                                     child_x,
                                     container.area.y,
-                                    width,
+                                    child_width,
                                     container.area.height,
                                 );
-                                child_x += width + inner_gap;
+                                child_x = child_x.saturating_add(child_width + inner_gap);
 
-                                // last child takes the remaining width because we can get uneven
-                                // space from rounding
-                                if i == len - 1 {
-                                    area.width = container.area.x + container.area.width - area.x;
-                                }
-
-                                self.stack.push((*child, area));
+                                self.stack.push((*child, child_area));
                             }
                         }
                     }
@@ -1113,6 +1168,14 @@ impl Tree {
                 &mut focus_parent.children[focus_pos],
                 &mut target_parent.children[target_pos],
             );
+            if focus_parent.weights.len() == focus_parent.children.len()
+                && target_parent.weights.len() == target_parent.children.len()
+            {
+                std::mem::swap(
+                    &mut focus_parent.weights[focus_pos],
+                    &mut target_parent.weights[target_pos],
+                );
+            }
             std::mem::swap(&mut focus_node.parent, &mut target_node.parent);
             let focus_area = focus_node.content.leaf_area()?;
             let target_area = target_node.content.leaf_area()?;
@@ -1134,6 +1197,7 @@ impl Tree {
         let target_pos = parent.children.iter().position(|id| *id == target)?;
         parent.children[focus_pos] = target;
         parent.children[target_pos] = focus;
+        parent.weights.swap(focus_pos, target_pos);
         let focus_area = focus_content.leaf_area()?;
         let target_area = target_content.leaf_area()?;
         focus_content.set_leaf_area(target_area);
@@ -1143,6 +1207,180 @@ impl Tree {
 
     pub fn area(&self) -> Rect {
         self.area
+    }
+
+    fn node_area(&self, id: ViewId) -> Rect {
+        match &self.nodes[id].content {
+            Content::Container(container) => container.area,
+            content => content.leaf_area().unwrap_or_default(),
+        }
+    }
+
+    /// Sets the weight ratio for a leaf among its two siblings in a container.
+    pub fn set_leaf_weight_fraction(&mut self, leaf_id: ViewId, fraction: f32) {
+        let parent = self.nodes[leaf_id].parent;
+        let Content::Container(container) = &mut self.nodes[parent].content else {
+            return;
+        };
+        if container.children.len() != 2 {
+            return;
+        }
+        container.ensure_weights();
+        let Some(pos) = container.children.iter().position(|&id| id == leaf_id) else {
+            return;
+        };
+        let sibling = 1 - pos;
+        let fraction = fraction.clamp(0.1, 0.9);
+        container.weights[pos] = fraction;
+        container.weights[sibling] = 1.0 - fraction;
+        self.recalculate();
+    }
+
+    /// Returns a resize handle at the given screen coordinates, if any interior divider matches.
+    pub fn resize_handle_at(&self, row: u16, column: u16) -> Option<(ResizeHandle, ResizeAxis)> {
+        let mut stack = vec![self.root];
+        while let Some(id) = stack.pop() {
+            let Content::Container(container) = &self.nodes[id].content else {
+                continue;
+            };
+
+            if container.children.len() >= 2 {
+                for divider_index in 0..container.children.len() - 1 {
+                    let left = self.node_area(container.children[divider_index]);
+                    let right = self.node_area(container.children[divider_index + 1]);
+
+                    let handle = match container.layout {
+                        Layout::Vertical => {
+                            let boundary = left.right();
+                            if row < left.y || row >= left.bottom() {
+                                continue;
+                            }
+                            if column != boundary.saturating_sub(1) && column != boundary {
+                                continue;
+                            }
+                            if boundary <= self.area.x || boundary >= self.area.right() {
+                                continue;
+                            }
+                            (
+                                ResizeHandle {
+                                    container_id: id,
+                                    divider_index,
+                                },
+                                ResizeAxis::Vertical,
+                            )
+                        }
+                        Layout::Horizontal => {
+                            let boundary = left.bottom();
+                            if column < left.x || column >= left.right() {
+                                continue;
+                            }
+                            if row != boundary.saturating_sub(1) && row != boundary {
+                                continue;
+                            }
+                            if boundary <= self.area.y || boundary >= self.area.bottom() {
+                                continue;
+                            }
+                            (
+                                ResizeHandle {
+                                    container_id: id,
+                                    divider_index,
+                                },
+                                ResizeAxis::Horizontal,
+                            )
+                        }
+                    };
+
+                    let _ = right;
+                    return Some(handle);
+                }
+            }
+
+            stack.extend(container.children.iter().copied());
+        }
+        None
+    }
+
+    /// Adjusts the split at `handle` by `delta` cells along the resize axis.
+    pub fn adjust_resize(&mut self, handle: ResizeHandle, delta: i16) -> bool {
+        if delta == 0 {
+            return false;
+        }
+
+        let Content::Container(container) = &self.nodes[handle.container_id].content else {
+            return false;
+        };
+        if handle.divider_index + 1 >= container.children.len() {
+            return false;
+        }
+
+        let layout = container.layout;
+        let left_id = container.children[handle.divider_index];
+        let right_id = container.children[handle.divider_index + 1];
+        let left_area = self.node_area(left_id);
+        let right_area = self.node_area(right_id);
+
+        let (left_size, right_size, gap) = match layout {
+            Layout::Vertical => {
+                let gap = right_area.x.saturating_sub(left_area.right());
+                (left_area.width, right_area.width, gap)
+            }
+            Layout::Horizontal => {
+                let gap = right_area.y.saturating_sub(left_area.bottom());
+                (left_area.height, right_area.height, gap)
+            }
+        };
+
+        let total = left_size.saturating_add(gap).saturating_add(right_size);
+        if total <= MIN_LEAF_SIZE.saturating_mul(2) {
+            return false;
+        }
+
+        let max_left = total.saturating_sub(MIN_LEAF_SIZE).saturating_sub(gap);
+        let new_left = (left_size as i32 + delta as i32)
+            .clamp(MIN_LEAF_SIZE as i32, max_left as i32) as u16;
+        let new_right = total.saturating_sub(gap).saturating_sub(new_left);
+        if new_right < MIN_LEAF_SIZE {
+            return false;
+        }
+
+        let pair_space = new_left.saturating_add(new_right);
+        if pair_space == 0 {
+            return false;
+        }
+        let left_fraction = new_left as f32 / pair_space as f32;
+
+        let container = self.container_mut(handle.container_id);
+        container.ensure_weights();
+        let pair_total = container.weights[handle.divider_index]
+            + container.weights[handle.divider_index + 1];
+        container.weights[handle.divider_index] = pair_total * left_fraction;
+        container.weights[handle.divider_index + 1] = pair_total * (1.0 - left_fraction);
+        self.recalculate();
+        true
+    }
+
+    /// Returns the screen area of a split divider for visual highlighting.
+    pub fn resize_divider_area(&self, handle: ResizeHandle) -> Option<Rect> {
+        let Content::Container(container) = &self.nodes[handle.container_id].content else {
+            return None;
+        };
+        if handle.divider_index + 1 >= container.children.len() {
+            return None;
+        }
+        let left = self.node_area(container.children[handle.divider_index]);
+        let right = self.node_area(container.children[handle.divider_index + 1]);
+        match container.layout {
+            Layout::Vertical => {
+                let x = left.right().saturating_sub(1);
+                let width = right.x.saturating_add(1).saturating_sub(x).max(1);
+                Some(Rect::new(x, left.y, width, left.height))
+            }
+            Layout::Horizontal => {
+                let y = left.bottom().saturating_sub(1);
+                let height = right.y.saturating_add(1).saturating_sub(y).max(1);
+                Some(Rect::new(left.x, y, left.width, height))
+            }
+        }
     }
 }
 
@@ -1535,5 +1773,111 @@ mod test {
         tree.focus = panel_id;
         assert!(tree.swap_split_in_direction(Direction::Right).is_some());
         assert_eq!(tree.focus, panel_id);
+    }
+
+    #[test]
+    fn resize_handle_at_interior_divider() {
+        let mut tree = Tree::new(Rect {
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 40,
+        });
+        tree.insert(View::new(DocumentId::default(), GutterConfig::default()));
+        let left = tree.focus;
+        tree.split(
+            View::new(DocumentId::default(), GutterConfig::default()),
+            Layout::Vertical,
+        );
+        let left_area = tree.get(left).area;
+        let divider = left_area.right().saturating_sub(1);
+        let row = left_area.y + left_area.height / 2;
+
+        assert!(tree.resize_handle_at(row, divider).is_some());
+        assert!(tree
+            .resize_handle_at(row, tree.area().x)
+            .is_none());
+        assert!(tree
+            .resize_handle_at(row, tree.area().right().saturating_sub(1))
+            .is_none());
+    }
+
+    #[test]
+    fn adjust_resize_changes_split_ratio() {
+        let mut tree = Tree::new(Rect {
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 40,
+        });
+        tree.insert(View::new(DocumentId::default(), GutterConfig::default()));
+        tree.split(
+            View::new(DocumentId::default(), GutterConfig::default()),
+            Layout::Vertical,
+        );
+
+        let widths: Vec<_> = tree.views().map(|(view, _)| view.area.width).collect();
+        let (handle, _) = tree
+            .resize_handle_at(
+                tree.area().y + 1,
+                tree.get(tree.prev()).area.right().saturating_sub(1),
+            )
+            .unwrap();
+        assert!(tree.adjust_resize(handle, 10));
+        let new_widths: Vec<_> = tree.views().map(|(view, _)| view.area.width).collect();
+        assert_ne!(widths, new_widths);
+        assert!(new_widths[0] > widths[0]);
+        assert!(new_widths[1] < widths[1]);
+    }
+
+    #[test]
+    fn resize_preserves_ratio_on_window_resize() {
+        let mut tree = Tree::new(Rect {
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 40,
+        });
+        tree.insert(View::new(DocumentId::default(), GutterConfig::default()));
+        let left = tree.focus;
+        tree.split(
+            View::new(DocumentId::default(), GutterConfig::default()),
+            Layout::Vertical,
+        );
+        tree.set_leaf_weight_fraction(left, 0.25);
+
+        let ratio_before = tree.get(left).area.width as f32 / tree.area().width as f32;
+        tree.resize(Rect {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 40,
+        });
+        let ratio_after = tree.get(left).area.width as f32 / tree.area().width as f32;
+        assert!((ratio_before - ratio_after).abs() < 0.05);
+    }
+
+    #[test]
+    fn swap_split_preserves_weights() {
+        let mut tree = Tree::new(Rect {
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 40,
+        });
+        tree.insert(View::new(DocumentId::default(), GutterConfig::default()));
+        let left = tree.focus;
+        tree.split(
+            View::new(DocumentId::default(), GutterConfig::default()),
+            Layout::Vertical,
+        );
+        let right = tree.focus;
+        tree.set_leaf_weight_fraction(left, 0.25);
+        let right_width_before = tree.get(right).area.width;
+
+        tree.focus = left;
+        tree.swap_split_in_direction(Direction::Right);
+        let left_width_after = tree.get(left).area.width;
+        assert_eq!(right_width_before, left_width_after);
     }
 }
