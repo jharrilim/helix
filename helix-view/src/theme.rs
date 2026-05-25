@@ -11,6 +11,7 @@ use log::warn;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Deserializer};
 use toml::{map::Map, Value};
+use toml_edit::{value, DocumentMut, Formatted, InlineTable, Item, Value as EditValue};
 
 use crate::graphics::UnderlineStyle;
 pub use crate::graphics::{Color, Modifier, Style};
@@ -112,6 +113,7 @@ impl Config {
         self.light == self.dark && self.fallback.is_none()
     }
 
+    #[cfg(test)]
     fn to_toml_value(&self) -> Value {
         if self.is_constant() {
             Value::String(self.dark.clone())
@@ -155,27 +157,87 @@ impl Config {
         Ok(root.get("theme").and_then(Self::from_toml_value))
     }
 
-    /// Write the selected theme to a config file, preserving other keys.
+    /// Write the selected theme to a config file, preserving other keys and formatting.
     pub fn save_selection(path: &Path, theme_name: &str, mode: Option<Mode>) -> Result<Self> {
         let updated = Self::load_from_file(path)?
             .map(|config| config.with_selected(theme_name, mode))
             .unwrap_or_else(|| Self::constant(theme_name));
 
-        let mut root: Value = if path.exists() {
-            toml::from_str(&std::fs::read_to_string(path)?)?
+        let mut doc = if path.exists() {
+            std::fs::read_to_string(path)?.parse::<DocumentMut>()?
         } else {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            Value::Table(Map::new())
+            DocumentMut::new()
         };
 
-        let Value::Table(ref mut table) = root else {
-            return Err(anyhow!("config file root must be a table"));
-        };
-        table.insert("theme".into(), updated.to_toml_value());
-        std::fs::write(path, toml::to_string_pretty(&root)?)?;
+        apply_theme_to_document(&mut doc, &updated);
+        std::fs::write(path, doc.to_string())?;
         Ok(updated)
+    }
+}
+
+fn apply_theme_to_document(doc: &mut DocumentMut, updated: &Config) {
+    let Some(theme_item) = doc.get_mut("theme") else {
+        doc.insert("theme", theme_item_from_config(updated));
+        return;
+    };
+
+    if updated.is_constant() {
+        if let Item::Value(EditValue::String(string)) = theme_item {
+            set_formatted_string(string, updated.dark.clone());
+            return;
+        }
+        *theme_item = theme_item_from_config(updated);
+        return;
+    }
+
+    match theme_item {
+        Item::Value(EditValue::InlineTable(table)) => {
+            set_inline_string(table, "dark", &updated.dark);
+            set_inline_string(table, "light", &updated.light);
+            if let Some(fallback) = &updated.fallback {
+                set_inline_string(table, "fallback", fallback);
+            } else {
+                table.remove("fallback");
+            }
+        }
+        _ => *theme_item = theme_item_from_config(updated),
+    }
+}
+
+fn set_formatted_string(string: &mut Formatted<String>, val: String) {
+    let decor = std::mem::take(string.decor_mut());
+    *string = Formatted::new(val);
+    *string.decor_mut() = decor;
+}
+
+fn theme_item_from_config(config: &Config) -> Item {
+    if config.is_constant() {
+        value(config.dark.clone())
+    } else {
+        let mut table = InlineTable::new();
+        table.insert("dark", config.dark.clone().into());
+        table.insert("light", config.light.clone().into());
+        if let Some(fallback) = &config.fallback {
+            table.insert("fallback", fallback.clone().into());
+        }
+        Item::Value(EditValue::InlineTable(table))
+    }
+}
+
+fn set_inline_string(table: &mut InlineTable, key: &str, val: &str) {
+    if let Some(value) = table.get_mut(key) {
+        set_string_value(value, val);
+        return;
+    }
+    table.insert(key, val.to_owned().into());
+}
+
+fn set_string_value(value: &mut EditValue, val: &str) {
+    if let EditValue::String(string) = value {
+        set_formatted_string(string, val.to_owned());
     }
 }
 
@@ -910,5 +972,28 @@ mod tests {
         let updated = config.with_selected("tokyonight", Some(Mode::Light));
         assert_eq!(updated.light, "tokyonight");
         assert_eq!(updated.dark, "onedark");
+    }
+
+    #[test]
+    fn save_selection_preserves_comments() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "# my config\n\
+             theme = \"old\" # current theme\n\
+             [editor]\n\
+             scrolloff = 4\n",
+        )
+        .unwrap();
+
+        Config::save_selection(&path, "new", None).unwrap();
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("# my config"));
+        assert!(contents.contains("theme = \"new\""));
+        assert!(contents.contains("# current theme"));
+        assert!(contents.contains("[editor]"));
+        assert!(contents.contains("scrolloff = 4"));
     }
 }
