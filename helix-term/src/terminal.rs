@@ -63,6 +63,14 @@ pub fn send(cmd: TerminalCommand) {
     with_controller(|controller| controller.send(cmd));
 }
 
+/// Tear down the live PTY for `id` after the child process has exited.
+/// Keeps the session handle registered so scrollback remains readable in the UI.
+pub fn shutdown_pty_session(id: &str) {
+    send(TerminalCommand::Kill {
+        id: id.to_string().into(),
+    });
+}
+
 pub fn shutdown_all() {
     with_controller(|controller| controller.shutdown());
 }

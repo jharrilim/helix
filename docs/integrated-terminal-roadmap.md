@@ -109,7 +109,6 @@ shell = "default"              # or explicit path + args
 scrollback-lines = 10000
 cwd = "current"                # "current" | "workspace-root" | explicit path
 focus-on-open = true
-auto-close-on-exit = false
 command-buffer = false
 ```
 

@@ -97,7 +97,8 @@ pub struct TerminalSettings {
     pub cwd: TerminalCwd,
     /// Focus the terminal panel when opened.
     pub focus_on_open: bool,
-    /// Close the panel automatically when the shell exits.
+    /// Deprecated: tabs always close when the shell exits.
+    #[serde(default, skip_serializing)]
     pub auto_close_on_exit: bool,
     /// Use a dedicated command buffer instead of direct PTY insert mode.
     pub command_buffer: bool,

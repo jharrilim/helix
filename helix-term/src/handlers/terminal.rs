@@ -122,17 +122,23 @@ fn apply_event(editor: &mut Editor, event: &TerminalEvent) {
             helix_event::request_redraw();
         }
         TerminalEvent::Exited { id, code, signal } => {
-            if editor.agent.shell_block_index.contains_key(&id.0)
-                || editor.agent.tool_shell_index.values().any(|linked| linked == &id.0)
-            {
-                crate::agent::on_terminal_exited(editor, &id.0, *code, *signal);
-            } else if let Some(session) = editor.terminal.session_mut(&id.0) {
-                session.exit_status = *code;
-            }
+            let is_agent = editor.agent.shell_block_index.contains_key(&id.0)
+                || editor
+                    .agent
+                    .tool_shell_index
+                    .values()
+                    .any(|linked| linked == &id.0);
 
-            let auto_close = editor.integrated_terminal_settings().auto_close_on_exit;
-            if auto_close && editor.terminal.session_mut(&id.0).is_some() {
+            if is_agent {
+                crate::terminal::shutdown_pty_session(&id.0);
+                crate::agent::on_terminal_exited(editor, &id.0, *code, *signal);
+            } else if editor.terminal.sessions.contains_key(&id.0) {
                 crate::commands::terminal::close_terminal_session(editor, &id.0);
+            } else {
+                crate::terminal::shutdown_pty_session(&id.0);
+                crate::terminal::with_controller(|controller| {
+                    controller.remove_session(&id.0);
+                });
             }
 
             helix_event::request_redraw();
