@@ -162,11 +162,9 @@ impl Application {
         } else if !args.files.is_empty() {
             let mut files_it = args.files.into_iter().peekable();
 
-            // If the first file is a directory, skip it and open a picker
-            if let Some((first, _)) = files_it.next_if(|(p, _)| p.is_dir()) {
-                let picker = ui::file_picker(&editor, first);
-                compositor.push(Box::new(overlaid(picker)));
-            }
+            // If the first argument is a directory, use it as cwd (see main.rs) but
+            // don't open the file picker automatically at startup.
+            let _ = files_it.next_if(|(p, _)| p.is_dir());
 
             // If there are any more files specified, open them
             if files_it.peek().is_some() {
@@ -246,7 +244,8 @@ impl Application {
         }
 
         if editor.agent_settings().enable && !cfg!(feature = "integration") {
-            editor.open_agent_panel_with_focus(false);
+            editor.open_agent_panel_with_focus(true);
+            editor.agent.focus = helix_view::agent::AgentFocus::Normal;
         }
 
         #[cfg(windows)]
