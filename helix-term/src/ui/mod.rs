@@ -28,6 +28,7 @@ mod text_decorations;
 pub(crate) use git::{move_selection_next, move_selection_prev};
 pub(crate) use agent::{
     enter_insert_mode as agent_enter_insert_mode,
+    scroll_transcript_by as agent_scroll_transcript_by,
     toggle_focused_collapsible_block as agent_toggle_collapsible_block,
 };
 pub(crate) use plan::{footer_activate as plan_footer_activate, page_down as plan_page_down, page_up as plan_page_up};

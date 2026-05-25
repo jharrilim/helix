@@ -198,37 +198,40 @@ pub fn handle_mouse(editor: &mut Editor, event: MouseEvent) -> EventResult {
             EventResult::Consumed(None)
         }
         MouseEventKind::ScrollUp if contains_coords(transcript_area, event.row, event.column) => {
-            editor.agent.scroll = editor.agent.scroll.saturating_add(1);
+            scroll_transcript_by(editor, 1);
             EventResult::Consumed(None)
         }
         MouseEventKind::ScrollDown if contains_coords(transcript_area, event.row, event.column) => {
-            editor.agent.scroll = editor.agent.scroll.saturating_sub(1);
+            scroll_transcript_by(editor, -1);
             EventResult::Consumed(None)
         }
         _ => EventResult::Ignored(None),
     }
 }
 
-fn build_transcript_layout(
-    editor: &Editor,
-    width: usize,
-    viewport_height: usize,
-) -> TranscriptLayout {
+fn transcript_viewport(editor: &Editor) -> (usize, usize) {
+    let Some(panel_id) = editor.agent.panel_id else {
+        return (0, 0);
+    };
+    let Some(panel) = editor.tree.agent_panel(panel_id) else {
+        return (0, 0);
+    };
+    let (_header, transcript_area, _input) = panel_layout(panel.area);
+    (
+        transcript_area.width.saturating_sub(2) as usize,
+        transcript_area.height as usize,
+    )
+}
+
+fn build_transcript_lines(editor: &Editor, width: usize) -> Vec<TranscriptLine> {
     let mut lines = Vec::new();
     if width == 0 {
-        return TranscriptLayout {
-            lines,
-            first_visible: 0,
-        };
+        return lines;
     }
-
-    let skip = editor.agent.scroll;
 
     append_debug_lines(width, editor, &mut lines);
 
-    let blocks: Vec<_> = editor.agent.blocks.iter().enumerate().rev().skip(skip).collect();
-
-    for (index, block) in blocks.into_iter().rev() {
+    for (index, block) in editor.agent.blocks.iter().enumerate() {
         append_block_lines(editor, index, &block.kind, width, &mut lines);
     }
 
@@ -244,11 +247,53 @@ fn build_transcript_layout(
         });
     }
 
-    let first_visible = lines.len().saturating_sub(viewport_height);
+    lines
+}
+
+fn build_transcript_layout(
+    editor: &Editor,
+    width: usize,
+    viewport_height: usize,
+) -> TranscriptLayout {
+    let lines = build_transcript_lines(editor, width);
+    if width == 0 {
+        return TranscriptLayout {
+            lines,
+            first_visible: 0,
+        };
+    }
+
+    let max_scroll = lines.len().saturating_sub(viewport_height);
+    let scroll = editor.agent.scroll.min(max_scroll);
+    let first_visible = max_scroll.saturating_sub(scroll);
     TranscriptLayout {
         lines,
         first_visible,
     }
+}
+
+pub(crate) fn scroll_transcript_by(editor: &mut Editor, delta: i32) {
+    let (width, viewport_height) = transcript_viewport(editor);
+    if viewport_height == 0 {
+        return;
+    }
+
+    let lines = build_transcript_lines(editor, width);
+    let max_scroll = lines.len().saturating_sub(viewport_height);
+
+    if delta > 0 {
+        editor.agent.scroll = editor
+            .agent
+            .scroll
+            .saturating_add(delta as usize)
+            .min(max_scroll);
+    } else if delta < 0 {
+        editor.agent.scroll = editor
+            .agent
+            .scroll
+            .saturating_sub((-delta) as usize);
+    }
+    helix_event::request_redraw();
 }
 
 fn point_from_mouse(
@@ -576,6 +621,7 @@ fn line_fills_row_background(kind: TranscriptLineKind) -> bool {
             | TranscriptLineKind::ToolBody
             | TranscriptLineKind::ShellHeader
             | TranscriptLineKind::ShellBody
+            | TranscriptLineKind::Plan
     )
 }
 
@@ -1283,11 +1329,11 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> bool {
             true
         }
         KeyCode::PageUp => {
-            editor.agent.scroll = editor.agent.scroll.saturating_add(1);
+            scroll_transcript_by(editor, 1);
             true
         }
         KeyCode::PageDown => {
-            editor.agent.scroll = editor.agent.scroll.saturating_sub(1);
+            scroll_transcript_by(editor, -1);
             true
         }
         _ => false,

@@ -320,6 +320,36 @@ async fn agent_transcript_renders_cursor_plan_notification() -> anyhow::Result<(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn agent_transcript_scroll_clamps_at_top() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+
+    open_agent_panel(&mut app);
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::Message(AgentMessage::User {
+            text: "first transcript line".into(),
+        }),
+    );
+    apply_test_agent_event(
+        &mut app.editor,
+        AgentEvent::Message(AgentMessage::Assistant {
+            text: "second transcript line".into(),
+        }),
+    );
+
+    app.editor.agent.scroll = usize::MAX;
+    app.render_frame().await;
+    let buffer = app.test_buffer_string();
+
+    assert!(
+        buffer.contains("first transcript line"),
+        "expected scroll clamp to keep earliest transcript line visible\n{buffer}"
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn agent_permission_request_opens_picker() -> anyhow::Result<()> {
     let mut app = AppBuilder::new().build()?;
 

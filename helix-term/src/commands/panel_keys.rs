@@ -27,13 +27,11 @@ pub fn agent_panel_toggle_collapsible(cx: &mut Context) {
 }
 
 pub fn agent_panel_page_up(cx: &mut Context) {
-    cx.editor.agent.scroll = cx.editor.agent.scroll.saturating_add(1);
-    helix_event::request_redraw();
+    crate::ui::agent_scroll_transcript_by(cx.editor, 1);
 }
 
 pub fn agent_panel_page_down(cx: &mut Context) {
-    cx.editor.agent.scroll = cx.editor.agent.scroll.saturating_sub(1);
-    helix_event::request_redraw();
+    crate::ui::agent_scroll_transcript_by(cx.editor, -1);
 }
 
 pub fn agent_panel_close(cx: &mut Context) {
