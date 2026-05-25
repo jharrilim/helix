@@ -3,7 +3,7 @@
 use crate::compositor::EventResult;
 use crate::ui::Markdown;
 use helix_core::unicode::segmentation::UnicodeSegmentation;
-use helix_core::unicode::width::UnicodeWidthStr;
+use helix_core::unicode::width::{UnicodeWidthChar, UnicodeWidthStr};
 use helix_core::Position;
 use helix_view::{
     agent::{AgentBlockKind, AgentFocus, AgentTranscriptPoint, AgentTranscriptSelection, ShellBlockStatus},
@@ -751,7 +751,7 @@ fn append_block_lines(
             });
             if *expanded {
                 if !shell_output.is_empty() {
-                    for wrapped in wrap_text(shell_output, width.saturating_sub(2)) {
+                    for wrapped in wrap_tool_output(shell_output, width.saturating_sub(2)) {
                         lines.push(TranscriptLine {
                             text: format!("  {wrapped}"),
                             spans: Vec::new(),
@@ -760,7 +760,7 @@ fn append_block_lines(
                         });
                     }
                 } else if let Some(detail) = detail.as_deref().filter(|text| !text.is_empty()) {
-                    for wrapped in wrap_text(detail, width.saturating_sub(2)) {
+                    for wrapped in wrap_tool_output(detail, width.saturating_sub(2)) {
                         lines.push(TranscriptLine {
                             text: format!("  {wrapped}"),
                             spans: Vec::new(),
@@ -803,7 +803,7 @@ fn append_block_lines(
                 entry_index: Some(block_index),
             });
             if *expanded && !output.is_empty() {
-                for wrapped in wrap_text(output, width.saturating_sub(2)) {
+                for wrapped in wrap_tool_output(output, width.saturating_sub(2)) {
                     lines.push(TranscriptLine {
                         text: format!("  {wrapped}"),
                         spans: Vec::new(),
@@ -1008,6 +1008,102 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
         lines.push(String::new());
     }
     lines
+}
+
+const TOOL_OUTPUT_TAB_WIDTH: usize = 4;
+
+/// Lay out tool/shell output while preserving newlines, indentation, and tabs.
+fn wrap_tool_output(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![text.to_string()];
+    }
+
+    let mut lines = Vec::new();
+    for line in text.split('\n') {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        let expanded = expand_tabs(line, TOOL_OUTPUT_TAB_WIDTH);
+        lines.extend(hard_wrap_line(&expanded, width));
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
+fn expand_tabs(text: &str, tab_width: usize) -> String {
+    let tab_width = tab_width.max(1);
+    let mut out = String::with_capacity(text.len());
+    let mut column = 0usize;
+    for ch in text.chars() {
+        if ch == '\t' {
+            let next_stop = column - (column % tab_width) + tab_width;
+            out.extend(std::iter::repeat_n(' ', next_stop - column));
+            column = next_stop;
+        } else {
+            out.push(ch);
+            column += ch.width().unwrap_or(0);
+        }
+    }
+    out
+}
+
+fn hard_wrap_line(line: &str, width: usize) -> Vec<String> {
+    if line.width() <= width {
+        return vec![line.to_string()];
+    }
+
+    let mut lines = Vec::new();
+    let mut chunk = String::new();
+    let mut chunk_width = 0usize;
+    for grapheme in line.graphemes(true) {
+        let grapheme_width = grapheme.width();
+        if chunk_width + grapheme_width > width && !chunk.is_empty() {
+            lines.push(chunk);
+            chunk = String::new();
+            chunk_width = 0;
+        }
+        chunk.push_str(grapheme);
+        chunk_width += grapheme_width;
+    }
+    if !chunk.is_empty() {
+        lines.push(chunk);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wrap_tool_output_preserves_newlines_and_indentation() {
+        let output = "On branch main\n  modified:   file.rs\n\nUntracked:\n\tnew.txt";
+        let lines = wrap_tool_output(output, 80);
+        assert_eq!(
+            lines,
+            vec![
+                "On branch main".to_string(),
+                "  modified:   file.rs".to_string(),
+                String::new(),
+                "Untracked:".to_string(),
+                "    new.txt".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn wrap_tool_output_expands_tabs_and_hard_wraps_long_lines() {
+        let output = "alpha\tbeta\nlongline_without_spaces";
+        let lines = wrap_tool_output(output, 10);
+        assert_eq!(lines[0], "alpha   be");
+        assert_eq!(lines[1], "ta");
+        assert_eq!(lines[2], "longline_w");
+        assert_eq!(lines[3], "ithout_spa");
+        assert_eq!(lines[4], "ces");
+    }
 }
 
 fn render_input(
