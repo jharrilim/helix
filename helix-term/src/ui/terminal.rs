@@ -199,11 +199,7 @@ fn render_panel(
     session_id: Option<&str>,
 ) {
     let theme = &editor.theme;
-    let border_style = if focused {
-        theme.get("ui.selection.active")
-    } else {
-        theme.get("ui.selection")
-    };
+    let border_style = super::panel_style::border_style(theme);
     let label_style = theme.get("ui.text");
     let header_style = theme.get("ui.text.inactive");
     let selection_style = theme.get("ui.selection");

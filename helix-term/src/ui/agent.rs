@@ -344,11 +344,7 @@ fn chars_until(text: &str, end: usize) -> String {
 
 pub fn render(editor: &Editor, area: Rect, surface: &mut Surface, focused: bool) {
     let theme = &editor.theme;
-    let border_style = if focused {
-        theme.get("ui.selection.active")
-    } else {
-        theme.get("ui.selection")
-    };
+    let border_style = super::panel_style::border_style(theme);
     let label_style = theme.get("ui.text");
     let role_style = theme.get("ui.help");
     let text_style = theme.get("ui.text");

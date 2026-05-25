@@ -109,12 +109,8 @@ fn row_at(layout: &GitLayout, scroll: usize, row: u16) -> Option<GitRow> {
     layout.rows.get(y).copied()
 }
 
-pub fn render(editor: &mut Editor, area: Rect, surface: &mut Surface, focused: bool) {
-    let border_style = if focused {
-        editor.theme.get("ui.border.focused")
-    } else {
-        editor.theme.get("ui.border")
-    };
+pub fn render(editor: &mut Editor, area: Rect, surface: &mut Surface, _focused: bool) {
+    let border_style = super::panel_style::border_style(&editor.theme);
     let label_style = editor.theme.get("ui.text");
     let branch = editor
         .git

@@ -1,6 +1,7 @@
 mod agent;
 mod git;
 mod panel;
+mod panel_style;
 pub(crate) mod terminal;
 pub mod terminal_tabs;
 pub mod agent_cursor;
