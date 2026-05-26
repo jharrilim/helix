@@ -324,11 +324,37 @@ pub fn diagnostics_or_breakpoints<'doc>(
     let mut diagnostics = diagnostic(editor, doc, view, theme, is_focused);
     let mut breakpoints = breakpoints(editor, doc, view, theme, is_focused);
     let mut execution_pause_indicator = execution_pause_indicator(editor, doc, theme, is_focused);
+    let mut review = review_comments(editor, doc, theme, is_focused);
 
     Box::new(move |line, selected, first_visual_line: bool, out| {
         execution_pause_indicator(line, selected, first_visual_line, out)
             .or_else(|| breakpoints(line, selected, first_visual_line, out))
+            .or_else(|| review(line, selected, first_visual_line, out))
             .or_else(|| diagnostics(line, selected, first_visual_line, out))
+    })
+}
+
+pub fn review_comments<'doc>(
+    _editor: &'doc Editor,
+    doc: &'doc Document,
+    theme: &Theme,
+    _is_focused: bool,
+) -> GutterFn<'doc> {
+    let style = theme
+        .try_get("ui.review.gutter")
+        .unwrap_or_else(|| theme.get("hint"));
+    let commented_lines: std::collections::HashSet<usize> = doc
+        .review_comments()
+        .iter()
+        .map(|comment| comment.line)
+        .collect();
+
+    Box::new(move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
+        if !first_visual_line || !commented_lines.contains(&line) {
+            return None;
+        }
+        write!(out, "◆").ok();
+        Some(style)
     })
 }
 

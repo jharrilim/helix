@@ -20,6 +20,7 @@ impl Default for StatusLineConfig {
         Self {
             left: vec![
                 E::Mode,
+                E::Review,
                 E::Spinner,
                 E::FileName,
                 E::ReadOnlyIndicator,
@@ -64,6 +65,9 @@ impl Default for ModeConfig {
 pub enum StatusLineElement {
     /// The editor mode (Normal, Insert, Visual/Selection)
     Mode,
+
+    /// Review mode indicator when active
+    Review,
 
     /// The LSP activity spinner
     Spinner,

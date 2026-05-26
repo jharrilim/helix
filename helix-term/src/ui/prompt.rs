@@ -17,7 +17,7 @@ use helix_core::{
     Position,
 };
 use helix_view::{
-    graphics::{CursorKind, Margin, Rect},
+    graphics::{CursorKind, Margin, Modifier, Rect},
     Editor,
 };
 
@@ -47,6 +47,8 @@ pub struct Prompt {
     pub doc_fn: DocFn,
     next_char_handler: Option<PromptCharHandler>,
     language: Option<(&'static str, Arc<ArcSwap<syntax::Loader>>)>,
+    /// When true, clear the editor area above the prompt line each frame.
+    clear_above: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -103,7 +105,14 @@ impl Prompt {
             doc_fn: Box::new(|_| None),
             next_char_handler: None,
             language: None,
+            clear_above: true,
         }
+    }
+
+    /// Keep the editor visible behind this prompt (for contextual prompts like review comments).
+    pub fn retain_editor(mut self) -> Self {
+        self.clear_above = false;
+        self
     }
 
     /// Gets the byte index in the input representing the current cursor location.
@@ -403,7 +412,14 @@ const BASE_WIDTH: u16 = 30;
 impl Prompt {
     pub fn render_prompt(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         let theme = &cx.editor.theme;
-        let prompt_color = theme.get("ui.text");
+        let prompt_color = if self.clear_above {
+            theme.get("ui.text")
+        } else {
+            theme
+                .try_get("ui.text.info")
+                .unwrap_or_else(|| theme.get("ui.text"))
+                .add_modifier(Modifier::BOLD)
+        };
         let completion_color = theme.get("ui.menu");
         let selected_color = theme.get("ui.menu.selected");
         let suggestion_color = theme.get("ui.text.inactive");
@@ -511,7 +527,14 @@ impl Prompt {
         }
 
         let line = area.height - 1;
-        surface.clear_with(area.clip_top(line), background);
+        if self.clear_above {
+            surface.clear_with(area.clip_top(line), background);
+        } else {
+            surface.clear_with(
+                Rect::new(area.x, area.y + line, area.width, 1),
+                background,
+            );
+        }
         // render buffer text
         surface.set_string(area.x, area.y + line, &self.prompt, prompt_color);
 
@@ -608,6 +631,7 @@ impl Component for Prompt {
             Event::Paste(data) => {
                 self.insert_str(data, cx.editor);
                 self.recalculate_completion(cx.editor);
+                (self.callback_fn)(cx, &self.line, PromptEvent::Update);
                 return EventResult::Consumed(None);
             }
             Event::Key(event) => *event,

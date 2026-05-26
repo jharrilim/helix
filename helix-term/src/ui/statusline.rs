@@ -131,6 +131,7 @@ where
 {
     match element_id {
         helix_view::editor::StatusLineElement::Mode => render_mode,
+        helix_view::editor::StatusLineElement::Review => render_review_indicator,
         helix_view::editor::StatusLineElement::Spinner => render_lsp_spinner,
         helix_view::editor::StatusLineElement::FileBaseName => render_file_base_name,
         helix_view::editor::StatusLineElement::FileName => render_file_name,
@@ -158,6 +159,22 @@ where
         helix_view::editor::StatusLineElement::Register => render_register,
         helix_view::editor::StatusLineElement::CurrentWorkingDirectory => render_cwd,
     }
+}
+
+fn render_review_indicator<'a, F>(context: &mut RenderContext<'a>, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    if !context.editor.review.active {
+        return;
+    }
+
+    let style = context
+        .editor
+        .theme
+        .try_get("ui.review.statusline")
+        .unwrap_or_else(|| context.editor.theme.get("hint"));
+    write(context, Span::styled(" REVIEW ", style));
 }
 
 fn render_mode<'a, F>(context: &mut RenderContext<'a>, write: F)

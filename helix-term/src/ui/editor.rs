@@ -8,7 +8,7 @@ use crate::{
     ui::{
         document::{render_document, LinePos, TextRenderer},
         statusline,
-        text_decorations::{self, Decoration, DecorationManager, InlineDiagnostics},
+        text_decorations::{self, Decoration, DecorationManager, InlineDiagnostics, ReviewDecoration},
         Completion, ProgressSpinners,
     },
 };
@@ -229,6 +229,9 @@ impl EditorView {
             inline_diagnostic_config,
             config.end_of_line_diagnostics,
         ));
+        if doc.has_review_comments() {
+            decorations.add_decoration(ReviewDecoration::new(doc, theme, width));
+        }
         render_document(
             surface,
             inner,
@@ -1994,26 +1997,31 @@ impl Component for EditorView {
 
         let key_width = 15u16; // for showing pending keys
         let mut status_msg_width = 0;
+        let suppress_commandline_status = cx.editor.review.pending_comment.is_some();
 
         // render status msg
-        if let Some((status_msg, severity)) = &cx.editor.status_msg {
-            status_msg_width = status_msg.width();
-            use helix_view::editor::Severity;
-            let style = if *severity == Severity::Error {
-                cx.editor.theme.get("error")
-            } else {
-                cx.editor.theme.get("ui.text")
-            };
+        if !suppress_commandline_status {
+            if let Some((status_msg, severity)) = &cx.editor.status_msg {
+                status_msg_width = status_msg.width();
+                use helix_view::editor::Severity;
+                let style = if *severity == Severity::Error {
+                    cx.editor.theme.get("error")
+                } else {
+                    cx.editor.theme.get("ui.text")
+                };
 
-            surface.set_string(
-                area.x,
-                area.y + area.height.saturating_sub(1),
-                status_msg,
-                style,
-            );
+                surface.set_string(
+                    area.x,
+                    area.y + area.height.saturating_sub(1),
+                    status_msg,
+                    style,
+                );
+            }
         }
 
-        if area.width.saturating_sub(status_msg_width as u16) > key_width {
+        if !suppress_commandline_status
+            && area.width.saturating_sub(status_msg_width as u16) > key_width
+        {
             let mut disp = String::new();
             if let Some(count) = cx.editor.count {
                 disp.push_str(&count.to_string())

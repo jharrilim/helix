@@ -18,6 +18,7 @@ mod shell;
 mod clipboard;
 mod diff;
 mod misc;
+mod review;
 mod agent;
 mod terminal;
 

@@ -17,6 +17,7 @@ pub mod info;
 pub mod input;
 pub mod keyboard;
 pub mod plan;
+pub mod review;
 pub mod register;
 pub mod terminal;
 pub mod theme;
@@ -82,6 +83,13 @@ pub use agent::{
 };
 pub use git::{GitActionRects, GitSelection, GitState};
 pub use plan::{PlanFooterFocus, PlanReview, PlanState};
+pub use review::{
+    capture_line_context, create_new_review, diff_metadata_for_line, format_review_for_llm,
+    list_reviews, load_review, new_comment_id, normalize_comment_path,
+    parse_unified_diff_line_map, repo_slug, save_review, sync_all_open_documents, timestamp_now,
+    DiffReviewSource, DiffSide, PendingReviewComment, ReviewComment, ReviewData,
+    ReviewListEntry, ReviewMetadata, ReviewState, ReviewStatus,
+};
 pub use terminal::{TerminalFocus, TerminalSettings, TerminalState};
 pub use document::Document;
 pub use editor::Editor;

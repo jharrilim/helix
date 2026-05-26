@@ -1,6 +1,7 @@
 pub(crate) mod context;
 pub(crate) mod helpers;
 pub(crate) mod prelude;
+pub(crate) mod review;
 pub(crate) mod agent;
 pub(crate) mod git;
 pub(crate) mod terminal;
@@ -27,6 +28,7 @@ pub(crate) mod panel_keys;
 
 pub use context::{Context, OnKeyCallback, OnKeyCallbackKind};
 pub(crate) use helpers::*;
+pub use review::*;
 pub use agent::*;
 pub use git::*;
 pub use terminal::*;

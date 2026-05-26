@@ -236,6 +236,14 @@ impl Document {
         self.path.as_ref()
     }
 
+    pub fn review_comments(&self) -> &[helix_review::ReviewComment] {
+        &self.review_comments
+    }
+
+    pub fn has_review_comments(&self) -> bool {
+        !self.review_comments.is_empty()
+    }
+
     /// File path as a URL.
     pub fn url(&self) -> Option<Url> {
         Url::from_file_path(self.path()?).ok()

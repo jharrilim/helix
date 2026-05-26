@@ -1969,6 +1969,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "helix-review"
+version = "25.7.1"
+dependencies = [
+ "anyhow",
+ "helix-core",
+ "helix-loader",
+ "helix-stdx",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "helix-stdx"
 version = "25.7.1"
 dependencies = [
@@ -2009,6 +2023,7 @@ dependencies = [
  "helix-loader",
  "helix-lsp",
  "helix-pty",
+ "helix-review",
  "helix-stdx",
  "helix-tui",
  "helix-vcs",
@@ -2087,6 +2102,7 @@ dependencies = [
  "helix-event",
  "helix-loader",
  "helix-lsp",
+ "helix-review",
  "helix-stdx",
  "helix-tui",
  "helix-vcs",

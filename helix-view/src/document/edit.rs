@@ -197,6 +197,15 @@ impl Document {
             highlights.ranges = updated;
         }
 
+        for comment in &mut self.review_comments {
+            changes.update_positions([(&mut comment.char_idx, Assoc::After)].into_iter());
+            comment.line = self.text.char_to_line(comment.char_idx);
+        }
+
+        if self.path.is_some() {
+            self.review_pending_changes = Some(changes.clone());
+        }
+
         helix_event::dispatch(DocumentDidChange {
             doc: self,
             view: view_id,

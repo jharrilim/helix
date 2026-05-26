@@ -513,6 +513,13 @@ impl View {
             ));
         }
 
+        if !doc.review_comments().is_empty() {
+            text_annotations.add_line_annotation(crate::annotations::review::ReviewLineAnnotation::new(
+                doc,
+                width,
+            ));
+        }
+
         text_annotations.with_folds(Some(doc.folds(self.id)))
     }
 

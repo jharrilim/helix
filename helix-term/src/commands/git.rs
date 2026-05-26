@@ -166,6 +166,7 @@ fn open_diff_buffer(editor: &mut Editor, path: &Path, diff: &str) {
     let loader = editor.syn_loader.clone();
     let mut doc = helix_view::Document::from(Rope::from(diff), None, config, loader.clone());
     let _ = doc.set_language_by_language_id("diff", &loader.load());
+    doc.diff_review_source = Some(helix_view::parse_unified_diff_line_map(path, diff));
     editor.open_document(doc, Action::VerticalSplit);
     editor.set_status(format!("git diff {}", path.display()));
 }

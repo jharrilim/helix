@@ -163,6 +163,13 @@ pub struct Document {
     pub pull_diagnostic_controller: TaskController,
     pub document_link_controller: TaskController,
 
+    /// Line-anchored review comments displayed below source lines.
+    pub(crate) review_comments: Vec<helix_review::ReviewComment>,
+    /// When this buffer is a git diff scratch buffer, maps diff lines to source coordinates.
+    pub diff_review_source: Option<helix_review::DiffReviewSource>,
+    /// Pending text changes to remap session review comments on next sync.
+    pub(crate) review_pending_changes: Option<helix_core::ChangeSet>,
+
     // NOTE: this field should eventually go away - we should use the Editor's syn_loader instead
     // of storing a copy on every doc. Then we can remove the surrounding `Arc` and use the
     // `ArcSwap` directly.

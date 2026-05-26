@@ -16,6 +16,7 @@ mod test {
     }
 
     mod agent;
+    mod review;
     mod auto_indent;
     mod auto_pairs;
     mod command_line;

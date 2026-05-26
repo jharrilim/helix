@@ -1,5 +1,6 @@
 use super::{CommandCompleter, FocusRequirement, TypableCommand};
 
+mod review;
 mod agent;
 mod buffer;
 mod clipboard;
@@ -69,5 +70,6 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = concat!(
     git::COMMANDS,
     misc::COMMANDS,
     agent::COMMANDS,
+    review::COMMANDS,
     terminal::COMMANDS,
 );

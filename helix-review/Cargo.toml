@@ -1,0 +1,24 @@
+[package]
+name = "helix-review"
+description = "Local code review types, persistence, and formatting for Helix"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+helix-core = { path = "../helix-core" }
+helix-loader = { path = "../helix-loader" }
+helix-stdx = { path = "../helix-stdx" }
+
+anyhow = "1"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+tempfile.workspace = true

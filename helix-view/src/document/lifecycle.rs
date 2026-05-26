@@ -78,6 +78,9 @@ impl Document {
             previous_diagnostic_ids: HashMap::new(),
             pull_diagnostic_controller: TaskController::new(),
             document_link_controller: TaskController::new(),
+            review_comments: Vec::new(),
+            diff_review_source: None,
+            review_pending_changes: None,
         }
     }
 

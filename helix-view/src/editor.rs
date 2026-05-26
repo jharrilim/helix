@@ -151,6 +151,7 @@ pub struct Editor {
     pub terminal: crate::terminal::TerminalState,
     pub git: crate::git::GitState,
     pub plan: crate::plan::PlanState,
+    pub review: crate::review::ReviewState,
 }
 
 pub type Motion = Box<dyn Fn(&mut Editor)>;
@@ -273,6 +274,7 @@ impl Editor {
             terminal: crate::terminal::TerminalState::new(),
             git: crate::git::GitState::new(),
             plan: crate::plan::PlanState::default(),
+            review: crate::review::ReviewState::default(),
             dir_stack: VecDeque::with_capacity(DIR_STACK_CAP),
         }
     }
