@@ -49,6 +49,10 @@ pub struct Prompt {
     language: Option<(&'static str, Arc<ArcSwap<syntax::Loader>>)>,
     /// When true, clear the editor area above the prompt line each frame.
     clear_above: bool,
+    /// When true, Enter submits and Shift+Enter inserts a newline.
+    multiline: bool,
+    /// When true, Enter invokes [`PromptEvent::Advance`] instead of [`PromptEvent::Validate`].
+    submit_to_footer_buttons: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -59,6 +63,8 @@ pub enum PromptEvent {
     Validate,
     /// Abort the change, reverting to the initial state.
     Abort,
+    /// Move to a follow-up UI step (e.g. footer buttons) without validating yet.
+    Advance,
 }
 
 pub enum CompletionDirection {
@@ -106,6 +112,8 @@ impl Prompt {
             next_char_handler: None,
             language: None,
             clear_above: true,
+            multiline: false,
+            submit_to_footer_buttons: false,
         }
     }
 
@@ -113,6 +121,62 @@ impl Prompt {
     pub fn retain_editor(mut self) -> Self {
         self.clear_above = false;
         self
+    }
+
+    /// Allow multiline input: Shift+Enter inserts newline, Enter submits.
+    pub fn multiline(mut self) -> Self {
+        self.multiline = true;
+        self
+    }
+
+    /// Enter moves to footer buttons; use [`PromptEvent::Advance`] in the callback.
+    pub fn submit_to_footer_buttons(mut self) -> Self {
+        self.submit_to_footer_buttons = true;
+        self
+    }
+
+    /// Byte range of the logical line containing the cursor.
+    fn logical_line_range(&self) -> (usize, usize) {
+        let start = self.line[..self.cursor]
+            .rfind('\n')
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let end = self.line[start..]
+            .find('\n')
+            .map(|i| start + i)
+            .unwrap_or(self.line.len());
+        (start, end)
+    }
+
+    fn cursor_in_display_line(&self) -> usize {
+        let (start, _) = self.logical_line_range();
+        self.cursor - start
+    }
+
+    fn logical_line_index(&self) -> usize {
+        self.line[..self.cursor].bytes().filter(|b| *b == b'\n').count()
+    }
+
+    fn logical_line_count(&self) -> usize {
+        self.line.bytes().filter(|b| *b == b'\n').count() + 1
+    }
+
+    fn move_logical_line(&mut self, delta: isize) {
+        let lines: Vec<&str> = self.line.split('\n').collect();
+        if lines.is_empty() {
+            return;
+        }
+        let col = self.cursor_in_display_line();
+        let idx = (self.logical_line_index() as isize + delta)
+            .clamp(0, lines.len() as isize - 1) as usize;
+        let mut offset = 0usize;
+        for (i, line) in lines.iter().enumerate() {
+            if i == idx {
+                self.cursor = offset + col.min(line.len());
+                return;
+            }
+            offset += line.len() + 1;
+        }
     }
 
     /// Gets the byte index in the input representing the current cursor location.
@@ -171,6 +235,9 @@ impl Prompt {
     /// Compute the cursor position after applying movement
     /// Taken from: <https://github.com/wez/wezterm/blob/e0b62d07ca9bf8ce69a61e30a3c20e7abc48ce7e/termwiz/src/lineedit/mod.rs#L516-L611>
     fn eval_movement(&self, movement: Movement) -> usize {
+        if self.multiline {
+            return self.eval_multiline_movement(movement);
+        }
         match movement {
             Movement::BackwardChar(rep) => {
                 let mut position = self.cursor;
@@ -261,6 +328,51 @@ impl Prompt {
         }
     }
 
+    fn eval_multiline_movement(&self, movement: Movement) -> usize {
+        let (line_start, line_end) = self.logical_line_range();
+        match movement {
+            Movement::StartOfLine => line_start,
+            Movement::EndOfLine => line_end,
+            Movement::BackwardChar(rep) => {
+                let mut position = self.cursor;
+                for _ in 0..rep {
+                    if position <= line_start {
+                        break;
+                    }
+                    let mut cursor = GraphemeCursor::new(position, self.line.len(), false);
+                    if let Ok(Some(pos)) = cursor.prev_boundary(&self.line, 0) {
+                        position = pos;
+                    } else {
+                        break;
+                    }
+                }
+                position
+            }
+            Movement::ForwardChar(rep) => {
+                let mut position = self.cursor;
+                for _ in 0..rep {
+                    if position >= line_end {
+                        break;
+                    }
+                    let mut cursor = GraphemeCursor::new(position, self.line.len(), false);
+                    if let Ok(Some(pos)) = cursor.next_boundary(&self.line, 0) {
+                        position = pos;
+                    } else {
+                        break;
+                    }
+                }
+                position
+            }
+            Movement::BackwardWord(rep) => {
+                self.eval_multiline_movement(Movement::BackwardChar(rep))
+            }
+            Movement::ForwardWord(rep) => {
+                self.eval_multiline_movement(Movement::ForwardChar(rep))
+            }
+            Movement::None => self.cursor,
+        }
+    }
+
     pub fn insert_char(&mut self, c: char, cx: &Context) {
         if let Some(handler) = &self.next_char_handler.take() {
             handler(self, c, cx);
@@ -289,14 +401,33 @@ impl Prompt {
     }
 
     pub fn move_start(&mut self) {
-        self.cursor = 0;
+        if self.multiline {
+            let (start, _) = self.logical_line_range();
+            self.cursor = start;
+        } else {
+            self.cursor = 0;
+        }
     }
 
     pub fn move_end(&mut self) {
-        self.cursor = self.line.len();
+        if self.multiline {
+            let (_, end) = self.logical_line_range();
+            self.cursor = end;
+        } else {
+            self.cursor = self.line.len();
+        }
     }
 
     pub fn delete_char_backwards(&mut self, editor: &Editor) {
+        if self.multiline {
+            let (line_start, _) = self.logical_line_range();
+            if self.cursor == line_start && line_start > 0 {
+                self.line.replace_range(line_start - 1..line_start, "");
+                self.cursor = line_start - 1;
+                self.recalculate_completion(editor);
+                return;
+            }
+        }
         let pos = self.eval_movement(Movement::BackwardChar(1));
         self.line.replace_range(pos..self.cursor, "");
         self.cursor = pos;
@@ -536,14 +667,33 @@ impl Prompt {
             );
         }
         // render buffer text
-        surface.set_string(area.x, area.y + line, &self.prompt, prompt_color);
+        let mut prompt_label = self.prompt.to_string();
+        if self.multiline && self.line.contains('\n') {
+            let _ = std::fmt::Write::write_fmt(
+                &mut prompt_label,
+                format_args!(
+                    " ({}/{})",
+                    self.logical_line_index() + 1,
+                    self.logical_line_count()
+                ),
+            );
+        }
+        surface.set_string(area.x, area.y + line, &prompt_label, prompt_color);
 
         self.line_area = area
-            .clip_left(self.prompt.len() as u16)
+            .clip_left(prompt_label.len() as u16)
             .clip_top(line)
             .clip_right(2);
 
-        if self.line.is_empty() {
+        let (line_start, render_line) = if self.multiline {
+            let (start, end) = self.logical_line_range();
+            (start, self.line[start..end].to_string())
+        } else {
+            (0, self.line.clone())
+        };
+        let cursor_in_line = self.cursor.saturating_sub(line_start);
+
+        if render_line.is_empty() {
             self.anchor = 0;
             // Show the most recently entered value as a suggestion.
             if let Some(suggestion) = self.first_history_completion(cx.editor) {
@@ -556,7 +706,7 @@ impl Prompt {
             }
         } else if let Some((language, loader)) = self.language.as_ref() {
             let mut text: ui::text::Text = crate::ui::markdown::highlighted_code_block(
-                &self.line,
+                &render_line,
                 language,
                 Some(&cx.editor.theme),
                 &loader.load(),
@@ -567,19 +717,17 @@ impl Prompt {
         } else {
             let line_width = self.line_area.width as usize;
 
-            if self.line.width() < line_width {
+            if render_line.width() < line_width {
                 self.anchor = 0;
-            } else if self.cursor <= self.anchor {
-                // Ensure the grapheme under the cursor is in view.
-                self.anchor = self.line[..self.cursor]
+            } else if cursor_in_line <= self.anchor {
+                self.anchor = render_line[..cursor_in_line]
                     .grapheme_indices(true)
                     .next_back()
                     .map(|(i, _)| i)
                     .unwrap_or_default();
-            } else if self.line[self.anchor..self.cursor].width() > line_width {
-                // Set the anchor to the last grapheme cluster before the width is exceeded.
+            } else if render_line[self.anchor..cursor_in_line].width() > line_width {
                 let mut width = 0;
-                self.anchor = self.line[..self.cursor]
+                self.anchor = render_line[..cursor_in_line]
                     .grapheme_indices(true)
                     .rev()
                     .find_map(|(idx, g)| {
@@ -594,13 +742,12 @@ impl Prompt {
             }
 
             self.truncate_start = self.anchor > 0;
-            self.truncate_end = self.line[self.anchor..].width() > line_width;
+            self.truncate_end = render_line[self.anchor..].width() > line_width;
 
-            // if we keep inserting characters just before the end elipsis, we move the anchor
-            // so that those new characters are displayed
-            if self.truncate_end && self.line[self.anchor..self.cursor].width() >= line_width {
-                // Move the anchor forward by one non-zero-width grapheme.
-                self.anchor += self.line[self.anchor..]
+            if self.truncate_end
+                && render_line[self.anchor..cursor_in_line].width() >= line_width
+            {
+                self.anchor += render_line[self.anchor..]
                     .grapheme_indices(true)
                     .find_map(|(idx, g)| {
                         if g.width() > 0 {
@@ -617,10 +764,38 @@ impl Prompt {
                 self.line_area.y,
                 self.truncate_start,
                 self.truncate_end,
-                &self.line.as_str()[self.anchor..],
+                &render_line[self.anchor..],
                 line_width,
                 |_| prompt_color,
             );
+        }
+
+        self.highlight_input_cursor(surface, &render_line, line_start, prompt_color);
+    }
+
+    fn highlight_input_cursor(
+        &self,
+        surface: &mut Surface,
+        render_line: &str,
+        line_start: usize,
+        style: helix_view::theme::Style,
+    ) {
+        if self.line_area.width == 0 {
+            return;
+        }
+        let cursor_in_line = self.cursor.saturating_sub(line_start);
+        let cursor_x = self.line_area.x.saturating_add(
+            render_line[..cursor_in_line.min(render_line.len())]
+                .graphemes(true)
+                .map(|g| g.width())
+                .sum::<usize>() as u16,
+        );
+        let cursor_y = self.line_area.y;
+        if let Some(cell) = surface.get_mut(
+            cursor_x.min(self.line_area.right().saturating_sub(1)),
+            cursor_y,
+        ) {
+            cell.set_style(style.add_modifier(Modifier::REVERSED));
         }
     }
 }
@@ -679,6 +854,10 @@ impl Component for Prompt {
                 self.delete_char_forwards(cx.editor);
                 (self.callback_fn)(cx, &self.line, PromptEvent::Update);
             }
+            shift!(Enter) if self.multiline => {
+                self.insert_char('\n', cx);
+                (self.callback_fn)(cx, &self.line, PromptEvent::Update);
+            }
             ctrl!('s') => {
                 if cx.editor.is_document_view_focused() {
                     let (view, doc) = current!(cx.editor);
@@ -726,18 +905,26 @@ impl Component for Prompt {
                         &self.line
                     };
 
-                    (self.callback_fn)(cx, input, PromptEvent::Validate);
+                    if self.submit_to_footer_buttons {
+                        (self.callback_fn)(cx, input, PromptEvent::Advance);
+                    } else {
+                        (self.callback_fn)(cx, input, PromptEvent::Validate);
+                    }
 
                     return close_fn;
                 }
             }
             ctrl!('p') | key!(Up) => {
-                if let Some(register) = self.history_register {
+                if self.multiline && self.history_register.is_none() {
+                    self.move_logical_line(-1);
+                } else if let Some(register) = self.history_register {
                     self.change_history(cx, register, CompletionDirection::Backward);
                 }
             }
             ctrl!('n') | key!(Down) => {
-                if let Some(register) = self.history_register {
+                if self.multiline && self.history_register.is_none() {
+                    self.move_logical_line(1);
+                } else if let Some(register) = self.history_register {
                     self.change_history(cx, register, CompletionDirection::Forward);
                 }
             }
@@ -793,21 +980,38 @@ impl Component for Prompt {
     }
 
     fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
+        let prompt_len = if self.multiline && self.line.contains('\n') {
+            self.prompt.len()
+                + format!(
+                    " ({}/{})",
+                    self.logical_line_index() + 1,
+                    self.logical_line_count()
+                )
+                .len()
+        } else {
+            self.prompt.len()
+        };
         let area = area
-            .clip_left(self.prompt.len() as u16)
+            .clip_left(prompt_len as u16)
             .clip_right(if self.prompt.is_empty() { 2 } else { 0 });
 
-        let mut col = area.left() as usize + self.line[self.anchor..self.cursor].width();
+        let (line_start, line_end) = if self.multiline {
+            self.logical_line_range()
+        } else {
+            (0, self.line.len())
+        };
+        let render_slice = &self.line[line_start..line_end];
+        let cursor_in_line = self.cursor.saturating_sub(line_start);
+        let mut col = area.left() as usize + render_slice[self.anchor..cursor_in_line].width();
 
-        // ensure the cursor does not go beyond elipses
         if self.truncate_end
-            && self.line[self.anchor..self.cursor].width() >= self.line_area.width as usize
+            && render_slice[self.anchor..cursor_in_line].width() >= self.line_area.width as usize
         {
             col -= 1;
         }
 
-        if self.truncate_start && self.cursor == self.anchor {
-            col += self.line[self.cursor..]
+        if self.truncate_start && cursor_in_line == self.anchor {
+            col += render_slice[cursor_in_line..]
                 .graphemes(true)
                 .next()
                 .map_or(0, |g| g.width());
@@ -815,9 +1019,16 @@ impl Component for Prompt {
 
         let line = area.height as usize - 1;
 
+        let kind = if self.clear_above {
+            editor.config().cursor_shape.from_mode(Mode::Insert)
+        } else {
+            // Cursor is drawn with reversed style in `highlight_input_cursor`.
+            CursorKind::Hidden
+        };
+
         (
             Some(Position::new(area.y as usize + line, col)),
-            editor.config().cursor_shape.from_mode(Mode::Insert),
+            kind,
         )
     }
 }

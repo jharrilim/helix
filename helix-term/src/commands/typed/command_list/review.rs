@@ -101,6 +101,18 @@ pub const COMMANDS: &[TypableCommand] = &[
         focus: FocusRequirement::Global,
     },
     TypableCommand {
+        name: "review-panel",
+        aliases: &[],
+        doc: "Toggle the code review sidebar panel",
+        fun: cmd::typed_review_panel,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, None),
+            ..Signature::DEFAULT
+        },
+        focus: FocusRequirement::Global,
+    },
+    TypableCommand {
         name: "review-resume",
         aliases: &[],
         doc: "Resume a saved code review by id",

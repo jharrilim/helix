@@ -68,7 +68,7 @@ pub fn execute_command(
                 cx.editor.set_error("command requires a document view");
                 return Ok(());
             }
-            PromptEvent::Update | PromptEvent::Abort => return Ok(()),
+            PromptEvent::Update | PromptEvent::Abort | PromptEvent::Advance => return Ok(()),
         }
     }
 

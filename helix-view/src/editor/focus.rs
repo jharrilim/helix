@@ -102,6 +102,9 @@ impl Editor {
             FocusTarget::Plan(id) => {
                 self.tree.focus = id;
             }
+            FocusTarget::Review(id) => {
+                self.tree.focus = id;
+            }
         }
     }
 

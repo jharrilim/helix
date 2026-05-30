@@ -19,6 +19,21 @@ pub struct PendingReviewComment {
     pub body: String,
 }
 
+/// Where keyboard focus lives while composing a review comment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReviewDraftFocus {
+    #[default]
+    Prompt,
+    Buttons(ReviewDraftButton),
+}
+
+/// Footer button selection while drafting a review comment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReviewDraftButton {
+    Save,
+    Delete,
+}
+
 /// Runtime review UI state on the editor.
 #[derive(Debug, Default)]
 pub struct ReviewState {
@@ -27,6 +42,7 @@ pub struct ReviewState {
     pub repo_slug: String,
     pub navigation_index: usize,
     pub pending_comment: Option<PendingReviewComment>,
+    pub draft_focus: ReviewDraftFocus,
 }
 
 impl ReviewState {
@@ -133,11 +149,7 @@ fn apply_pending_comment_to_document(
     doc: &mut Document,
     repo_root: &Path,
 ) {
-    let body = if pending.body.is_empty() {
-        "Review comment: …".into()
-    } else {
-        format!("Review comment: {}", pending.body)
-    };
+    let body = pending.body.clone();
 
     if let Some(diff_source) = &doc.diff_review_source {
         let Some(mapping) = diff_source.line_map.get(pending.display_line).and_then(|m| m.as_ref()) else {
@@ -152,7 +164,8 @@ fn apply_pending_comment_to_document(
             line: pending.display_line,
             line_end: None,
             char_idx: doc.text().line_to_char(pending.display_line),
-            body,
+            body: body.clone(),
+            author: helix_review::CommentAuthor::User,
             context_before: Vec::new(),
             context_after: Vec::new(),
             code_at_comment: String::new(),
@@ -172,6 +185,7 @@ fn apply_pending_comment_to_document(
             line_end: None,
             char_idx: doc.text().line_to_char(pending.display_line),
             body,
+            author: helix_review::CommentAuthor::User,
             context_before: Vec::new(),
             context_after: Vec::new(),
             code_at_comment: String::new(),
@@ -180,6 +194,25 @@ fn apply_pending_comment_to_document(
             created_at: String::new(),
         };
         doc.review_comments.push(display);
+    }
+}
+
+/// Mirror draft UI state (prompt cursor, focused footer button) into open documents.
+pub fn sync_review_draft_ui(
+    editor: &mut crate::Editor,
+    prompt_cursor: Option<usize>,
+) {
+    let (cursor, button) = match (
+        editor.review.pending_comment.is_some(),
+        editor.review.draft_focus,
+    ) {
+        (true, ReviewDraftFocus::Prompt) => (prompt_cursor, None),
+        (true, ReviewDraftFocus::Buttons(button)) => (None, Some(button)),
+        _ => (None, None),
+    };
+    for doc in editor.documents.values_mut() {
+        doc.review_draft_cursor = cursor;
+        doc.review_draft_button = button;
     }
 }
 
@@ -214,8 +247,9 @@ pub fn normalize_comment_path(path: &Path, repo_root: &Path) -> std::path::PathB
 }
 
 pub use helix_review::{
-    capture_line_context, create_new_review, format_review_for_llm, list_reviews, load_review,
-    new_comment_id, parse_unified_diff_line_map, repo_slug, save_review, timestamp_now,
-    DiffLineMapping, DiffReviewSource, DiffSide, ReviewComment, ReviewData, ReviewListEntry,
-    ReviewMetadata, ReviewStatus,
+    author_label, capture_line_context, comment_box_height, comment_header_text,
+    comment_text_format, create_new_review, delete_review, format_comment_timestamp,
+    format_review_for_llm, list_reviews, load_review, new_comment_id, parse_unified_diff_line_map,
+    repo_slug, save_review, timestamp_now, CommentAuthor, DiffLineMapping, DiffReviewSource,
+    DiffSide, ReviewComment, ReviewData, ReviewListEntry, ReviewMetadata, ReviewStatus,
 };

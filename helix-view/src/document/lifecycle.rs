@@ -81,6 +81,8 @@ impl Document {
             review_comments: Vec::new(),
             diff_review_source: None,
             review_pending_changes: None,
+            review_draft_cursor: None,
+            review_draft_button: None,
         }
     }
 

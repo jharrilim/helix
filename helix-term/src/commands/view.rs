@@ -117,6 +117,11 @@ pub fn wclose(cx: &mut Context) {
         return;
     }
 
+    if cx.editor.tree.is_review_panel(cx.editor.tree.focus) {
+        cx.editor.close_review_panel();
+        return;
+    }
+
     if cx.editor.tree.is_plan_panel(cx.editor.tree.focus) {
         crate::ui::plan::cancel_plan_flow(cx.editor);
         return;

@@ -1973,6 +1973,7 @@ name = "helix-review"
 version = "25.7.1"
 dependencies = [
  "anyhow",
+ "chrono",
  "helix-core",
  "helix-loader",
  "helix-stdx",

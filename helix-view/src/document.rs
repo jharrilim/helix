@@ -169,6 +169,10 @@ pub struct Document {
     pub diff_review_source: Option<helix_review::DiffReviewSource>,
     /// Pending text changes to remap session review comments on next sync.
     pub(crate) review_pending_changes: Option<helix_core::ChangeSet>,
+    /// Byte cursor in the review comment prompt, mirrored for draft box highlighting.
+    pub(crate) review_draft_cursor: Option<usize>,
+    /// Focused footer button while drafting a review comment.
+    pub(crate) review_draft_button: Option<crate::review::ReviewDraftButton>,
 
     // NOTE: this field should eventually go away - we should use the Editor's syn_loader instead
     // of storing a copy on every doc. Then we can remove the surrounding `Arc` and use the

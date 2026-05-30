@@ -244,6 +244,14 @@ impl Document {
         !self.review_comments.is_empty()
     }
 
+    pub fn review_draft_cursor(&self) -> Option<usize> {
+        self.review_draft_cursor
+    }
+
+    pub fn review_draft_button(&self) -> Option<crate::review::ReviewDraftButton> {
+        self.review_draft_button
+    }
+
     /// File path as a URL.
     pub fn url(&self) -> Option<Url> {
         Url::from_file_path(self.path()?).ok()

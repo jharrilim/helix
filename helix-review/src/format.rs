@@ -1,4 +1,4 @@
-use crate::{ReviewComment, ReviewData};
+use crate::{author_label, format_comment_timestamp, ReviewComment, ReviewData};
 
 /// Format a review as markdown suitable for agent submission.
 pub fn format_review_for_llm(review: &ReviewData) -> String {
@@ -38,7 +38,17 @@ fn append_comment(out: &mut String, comment: &ReviewComment, repo_root: &std::pa
         .unwrap_or(&comment.file)
         .display();
     let line_one_based = comment.line + 1;
-    out.push_str(&format!("### {display_path}:{line_one_based}\n"));
+    let author = author_label(comment.author).to_lowercase();
+    let timestamp = format_comment_timestamp(&comment.created_at);
+    if timestamp.is_empty() {
+        out.push_str(&format!(
+            "### {display_path}:{line_one_based} ({author})\n"
+        ));
+    } else {
+        out.push_str(&format!(
+            "### {display_path}:{line_one_based} ({author}, {timestamp})\n"
+        ));
+    }
     out.push_str(&format!("> {}\n\n", comment.body));
 
     if let Some(side) = comment.diff_side {
@@ -68,7 +78,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::{DiffSide, ReviewMetadata, ReviewStatus};
+    use crate::{CommentAuthor, DiffSide, ReviewMetadata, ReviewStatus};
 
     #[test]
     fn format_review_includes_comments() {
@@ -95,6 +105,7 @@ mod tests {
                 diff_side: Some(DiffSide::Modified),
                 hunk_index: Some(0),
                 created_at: "1".into(),
+                author: CommentAuthor::User,
             }],
         };
 
@@ -102,6 +113,23 @@ mod tests {
         assert!(formatted.contains("# Code Review"));
         assert!(formatted.contains("Rename this variable"));
         assert!(formatted.contains("src/main.rs:10"));
+        assert!(formatted.contains("(you"));
         assert!(formatted.contains("Looks good overall"));
+    }
+
+    #[test]
+    fn author_defaults_to_user_on_deserialize() {
+        let json = r#"{
+            "id": "c1",
+            "file": "src/a.rs",
+            "line": 0,
+            "body": "note",
+            "context_before": [],
+            "context_after": [],
+            "code_at_comment": "",
+            "created_at": "1"
+        }"#;
+        let comment: ReviewComment = serde_json::from_str(json).unwrap();
+        assert_eq!(comment.author, CommentAuthor::User);
     }
 }

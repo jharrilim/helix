@@ -22,6 +22,7 @@ pub(crate) fn theme(cx: &mut compositor::Context, args: Args, event: PromptEvent
                 };
             };
         }
+        PromptEvent::Advance => {}
         PromptEvent::Validate => {
             if let Some(theme_name) = args.first() {
                 let theme = cx

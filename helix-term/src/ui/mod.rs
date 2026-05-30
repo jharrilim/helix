@@ -3,6 +3,7 @@ mod agent_link;
 mod git;
 mod panel;
 pub mod plan;
+pub mod review_panel;
 mod panel_style;
 pub(crate) mod terminal;
 pub mod terminal_tabs;
@@ -144,7 +145,10 @@ pub fn raw_regex_prompt(
                     doc.set_selection(view.id, snapshot.clone());
                     doc.set_view_offset(view.id, offset_snapshot);
                 }
-                PromptEvent::Update | PromptEvent::Validate => {
+                PromptEvent::Update | PromptEvent::Validate | PromptEvent::Advance => {
+                    if matches!(event, PromptEvent::Advance) {
+                        return;
+                    }
                     // skip empty input
                     if input.is_empty() {
                         return;

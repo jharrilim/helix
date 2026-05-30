@@ -76,6 +76,19 @@ pub fn terminal_panel() -> KeyTrie {
     }))
 }
 
+pub fn review_panel() -> KeyTrie {
+    with_shared(keymap!({ "Review panel"
+        "j" | "down" => review_panel_move_down,
+        "k" | "up" => review_panel_move_up,
+        "ret" => review_panel_activate,
+        "d" => review_panel_delete,
+        "n" => review_new,
+        "S" => review_panel_submit,
+        "r" => review_panel_refresh,
+        "q" => review_panel_close,
+    }))
+}
+
 pub fn plan_panel() -> KeyTrie {
     with_shared(keymap!({ "Plan panel"
         "pageup" => plan_panel_page_up,
@@ -92,5 +105,6 @@ pub fn default() -> HashMap<LeafKind, KeyTrie> {
         LeafKind::AgentPanel => agent_panel(),
         LeafKind::TerminalPanel => terminal_panel(),
         LeafKind::PlanPanel => plan_panel(),
+        LeafKind::ReviewPanel => review_panel(),
     }
 }

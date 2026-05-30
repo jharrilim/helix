@@ -16,6 +16,7 @@ pub enum LeafKind {
     GitPanel,
     TerminalPanel,
     PlanPanel,
+    ReviewPanel,
 }
 
 /// Agent chat panel leaf in the split tree.
@@ -43,6 +44,13 @@ pub struct TerminalPanel {
 /// Agent plan review panel leaf in the split tree.
 #[derive(Debug)]
 pub struct PlanPanel {
+    pub id: ViewId,
+    pub area: Rect,
+}
+
+/// Code review session panel leaf in the split tree.
+#[derive(Debug)]
+pub struct ReviewPanel {
     pub id: ViewId,
     pub area: Rect,
 }
@@ -76,6 +84,7 @@ pub enum Content {
     GitPanel(GitPanel),
     TerminalPanel(TerminalPanel),
     PlanPanel(PlanPanel),
+    ReviewPanel(ReviewPanel),
     Container(Box<Container>),
 }
 
@@ -88,6 +97,7 @@ impl Content {
             Self::GitPanel(_) => Some(LeafKind::GitPanel),
             Self::TerminalPanel(_) => Some(LeafKind::TerminalPanel),
             Self::PlanPanel(_) => Some(LeafKind::PlanPanel),
+            Self::ReviewPanel(_) => Some(LeafKind::ReviewPanel),
             Self::Container(_) => None,
         }
     }
@@ -100,6 +110,7 @@ impl Content {
             Self::GitPanel(panel) => Some(panel.area),
             Self::TerminalPanel(panel) => Some(panel.area),
             Self::PlanPanel(panel) => Some(panel.area),
+            Self::ReviewPanel(panel) => Some(panel.area),
             Self::Container(_) => None,
         }
     }
@@ -112,6 +123,7 @@ impl Content {
             Self::GitPanel(panel) => panel.area = area,
             Self::TerminalPanel(panel) => panel.area = area,
             Self::PlanPanel(panel) => panel.area = area,
+            Self::ReviewPanel(panel) => panel.area = area,
             Self::Container(_) => {}
         }
     }
@@ -123,6 +135,7 @@ impl Content {
             Self::GitPanel(panel) => Some(panel.id),
             Self::TerminalPanel(panel) => Some(panel.id),
             Self::PlanPanel(panel) => Some(panel.id),
+            Self::ReviewPanel(panel) => Some(panel.id),
             Self::Container(_) => None,
         }
     }
@@ -168,6 +181,13 @@ impl Node {
         Self {
             parent: ViewId::default(),
             content: Content::PlanPanel(panel),
+        }
+    }
+
+    pub fn review_panel(panel: ReviewPanel) -> Self {
+        Self {
+            parent: ViewId::default(),
+            content: Content::ReviewPanel(panel),
         }
     }
 }
@@ -474,6 +494,27 @@ impl Tree {
         let node = self.nodes.insert(node);
         if let Node {
             content: Content::GitPanel(panel),
+            ..
+        } = &mut self.nodes[node]
+        {
+            panel.id = node;
+        }
+
+        self.insert_panel_at_root(node, false);
+        self.focus = node;
+        self.recalculate();
+        node
+    }
+
+    /// Insert a review panel as the rightmost full-height column at the tree root.
+    pub fn split_review_panel(&mut self, _layout: Layout) -> ViewId {
+        let node = Node::review_panel(ReviewPanel {
+            id: ViewId::default(),
+            area: Rect::default(),
+        });
+        let node = self.nodes.insert(node);
+        if let Node {
+            content: Content::ReviewPanel(panel),
             ..
         } = &mut self.nodes[node]
         {
@@ -815,6 +856,47 @@ impl Tree {
         })
     }
 
+    pub fn is_review_panel(&self, index: ViewId) -> bool {
+        matches!(
+            self.nodes.get(index),
+            Some(Node {
+                content: Content::ReviewPanel(_),
+                ..
+            })
+        )
+    }
+
+    pub fn review_panel(&self, index: ViewId) -> Option<&ReviewPanel> {
+        match self.nodes.get(index) {
+            Some(Node {
+                content: Content::ReviewPanel(panel),
+                ..
+            }) => Some(panel),
+            _ => None,
+        }
+    }
+
+    pub fn review_panel_mut(&mut self, index: ViewId) -> Option<&mut ReviewPanel> {
+        match self.nodes.get_mut(index) {
+            Some(Node {
+                content: Content::ReviewPanel(panel),
+                ..
+            }) => Some(panel),
+            _ => None,
+        }
+    }
+
+    pub fn review_panels(&self) -> impl Iterator<Item = (&ReviewPanel, bool)> {
+        let focus = self.focus;
+        self.nodes.iter().filter_map(move |(key, node)| match node {
+            Node {
+                content: Content::ReviewPanel(panel),
+                ..
+            } => Some((panel, focus == key)),
+            _ => None,
+        })
+    }
+
     pub fn is_auxiliary_panel(&self, index: ViewId) -> bool {
         matches!(
             self.leaf_kind(index),
@@ -823,6 +905,7 @@ impl Tree {
                     | LeafKind::GitPanel
                     | LeafKind::TerminalPanel
                     | LeafKind::PlanPanel
+                    | LeafKind::ReviewPanel
             )
         )
     }
@@ -1074,7 +1157,12 @@ impl Tree {
         // Parent must always be a container
         let parent_container = match &self.nodes[parent].content {
             Content::Container(container) => container,
-            Content::View(_) | Content::AgentPanel(_) | Content::GitPanel(_) | Content::TerminalPanel(_) | Content::PlanPanel(_) => unreachable!(),
+            Content::View(_)
+            | Content::AgentPanel(_)
+            | Content::GitPanel(_)
+            | Content::TerminalPanel(_)
+            | Content::PlanPanel(_)
+            | Content::ReviewPanel(_) => unreachable!(),
         };
 
         match (direction, parent_container.layout) {
@@ -1496,7 +1584,11 @@ impl<'a> Iterator for Traverse<'a> {
 
             match &node.content {
                 Content::View(view) => return Some((key, view)),
-                Content::AgentPanel(_) | Content::GitPanel(_) | Content::TerminalPanel(_) | Content::PlanPanel(_) => continue,
+                Content::AgentPanel(_)
+                | Content::GitPanel(_)
+                | Content::TerminalPanel(_)
+                | Content::PlanPanel(_)
+                | Content::ReviewPanel(_) => continue,
                 Content::Container(container) => {
                     self.stack.extend(container.children.iter().rev());
                 }
@@ -1514,7 +1606,11 @@ impl DoubleEndedIterator for Traverse<'_> {
 
             match &node.content {
                 Content::View(view) => return Some((key, view)),
-                Content::AgentPanel(_) | Content::GitPanel(_) | Content::TerminalPanel(_) | Content::PlanPanel(_) => continue,
+                Content::AgentPanel(_)
+                | Content::GitPanel(_)
+                | Content::TerminalPanel(_)
+                | Content::PlanPanel(_)
+                | Content::ReviewPanel(_) => continue,
                 Content::Container(container) => {
                     self.stack.extend(container.children.iter());
                 }
@@ -1545,7 +1641,12 @@ impl<'a> Iterator for LeafTraverse<'a> {
             let key = self.stack.pop()?;
             let node = &self.tree.nodes[key];
             match &node.content {
-                Content::View(_) | Content::AgentPanel(_) | Content::GitPanel(_) | Content::TerminalPanel(_) | Content::PlanPanel(_) => {
+                Content::View(_)
+                | Content::AgentPanel(_)
+                | Content::GitPanel(_)
+                | Content::TerminalPanel(_)
+                | Content::PlanPanel(_)
+                | Content::ReviewPanel(_) => {
                     return Some((key, ()))
                 }
                 Content::Container(container) => {
@@ -1562,7 +1663,12 @@ impl DoubleEndedIterator for LeafTraverse<'_> {
             let key = self.stack.pop()?;
             let node = &self.tree.nodes[key];
             match &node.content {
-                Content::View(_) | Content::AgentPanel(_) | Content::GitPanel(_) | Content::TerminalPanel(_) | Content::PlanPanel(_) => {
+                Content::View(_)
+                | Content::AgentPanel(_)
+                | Content::GitPanel(_)
+                | Content::TerminalPanel(_)
+                | Content::PlanPanel(_)
+                | Content::ReviewPanel(_) => {
                     return Some((key, ()))
                 }
                 Content::Container(container) => {

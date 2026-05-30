@@ -60,8 +60,8 @@ async fn review_comment_keymap_opens_prompt() -> anyhow::Result<()> {
                 "keymap should open visible review comment prompt, buffer:\n{buffer}"
             );
             assert!(
-                buffer.contains("Review comment:"),
-                "draft virtual line should appear below cursor, buffer:\n{buffer}"
+                buffer.contains("You · Draft"),
+                "draft comment box should show author and draft label, buffer:\n{buffer}"
             );
         }),
         false,
@@ -90,6 +90,62 @@ async fn review_comment_typing_updates_prompt_and_draft() -> anyhow::Result<()> 
             assert!(
                 buffer.contains("hello"),
                 "typed text should appear in prompt or draft line, buffer:\n{buffer}"
+            );
+        }),
+        false,
+    )
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn review_comment_multiline_shift_enter() -> anyhow::Result<()> {
+    let mut file = tempfile::NamedTempFile::new()?;
+    std::io::Write::write_all(&mut file, b"hello\n")?;
+
+    let mut app = AppBuilder::new().with_file(file.path(), None).build()?;
+
+    app.validate_typed_command("review-toggle", "")?;
+    test_key_sequence(
+        &mut app,
+        Some("<space>Rcline one<S-ret>line two"),
+        Some(&|app| {
+            let buffer = app.test_buffer_string();
+            assert!(
+                buffer.contains("line one"),
+                "first line should appear in draft box, buffer:\n{buffer}"
+            );
+            assert!(
+                buffer.contains("line two"),
+                "second line should appear after shift+enter, buffer:\n{buffer}"
+            );
+        }),
+        false,
+    )
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn review_comment_enter_shows_footer_buttons() -> anyhow::Result<()> {
+    let mut file = tempfile::NamedTempFile::new()?;
+    std::io::Write::write_all(&mut file, b"hello\n")?;
+
+    let mut app = AppBuilder::new().with_file(file.path(), None).build()?;
+
+    app.validate_typed_command("review-toggle", "")?;
+    test_key_sequence(
+        &mut app,
+        Some("<space>Rctest<ret>"),
+        Some(&|app| {
+            let buffer = app.test_buffer_string();
+            assert!(
+                buffer.contains("Save"),
+                "footer should show Save after Enter, buffer:\n{buffer}"
+            );
+            assert!(
+                buffer.contains("Delete"),
+                "footer should show Delete after Enter, buffer:\n{buffer}"
             );
         }),
         false,

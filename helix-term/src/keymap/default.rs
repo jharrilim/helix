@@ -312,6 +312,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "S" => review_summary,
                 "]" => review_next,
                 "[" => review_prev,
+                "p" => review_panel_toggle,
             },
             "t" => { "Terminal"
                 "o" => terminal_open,

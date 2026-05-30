@@ -116,6 +116,30 @@ pub(crate) fn typed_review_prev(
     Ok(())
 }
 
+pub(crate) fn typed_review_panel(
+    cx: &mut compositor::Context,
+    _args: Args<'_>,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    if cx.editor.review_panel.is_open() {
+        if cx.editor.tree.is_review_panel(cx.editor.tree.focus) {
+            cx.editor.close_review_panel();
+        } else {
+            cx.editor.focus_review_panel();
+            crate::ui::review_panel::refresh_list(cx.editor);
+        }
+    } else {
+        cx.editor.open_review_panel();
+        cx.editor.review.active = true;
+        crate::ui::review_panel::refresh_list(cx.editor);
+    }
+    helix_event::request_redraw();
+    Ok(())
+}
+
 pub(crate) fn typed_review_resume(
     cx: &mut compositor::Context,
     args: Args<'_>,

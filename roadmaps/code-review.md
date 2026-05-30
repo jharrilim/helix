@@ -26,6 +26,7 @@ Example `review.json` comment entry:
   "line": 41,
   "line_end": null,
   "body": "Extract this into a helper",
+  "author": "user",
   "context_before": ["fn foo() {", "    let x = 1;"],
   "context_after": ["    bar(x);", "}"],
   "code_at_comment": "    let x = compute();",
@@ -42,6 +43,8 @@ Conventions:
 - **review-id:** Unix timestamp string (seconds since epoch)
 - **line numbers:** 0-based in storage; displayed as 1-based in prompts to the agent
 - **snapshots:** each comment stores surrounding lines so reviews stay useful after edits
+- **author:** `user` or `agent` (defaults to `user` when omitted in older files)
+- **UI:** comments render in bordered boxes with author, timestamp, and multiline body; `Shift+Enter` inserts a newline in the review comment prompt, `Enter` submits
 
 ## User commands
 
@@ -56,6 +59,22 @@ Conventions:
 | `:review-next` | `Space R ]` | Jump to next comment |
 | `:review-prev` | `Space R [` | Jump to previous comment |
 | `:review-resume` | `:review-resume <id>` | Resume a saved review |
+| `:review-panel` | `Space R p` | Toggle code review sidebar panel |
+
+### Review panel (sidebar)
+
+The review panel lists saved reviews for the repo, loads the active session’s comments,
+and exposes actions on the bottom row: `[(N)ew]`, `[(S)ubmit]`, `[(D)elete]`.
+
+| Panel key | Action |
+|-----------|--------|
+| `j` / `k` | Move selection |
+| `ret` | Open selected review or jump to comment |
+| `d` | Delete selected review or comment |
+| `n` | New review session |
+| `S` | Submit active review to agent |
+| `r` | Refresh review list |
+| `q` | Close panel |
 
 ## Tier 1 — Core review on source files
 

@@ -20,6 +20,15 @@ pub enum ReviewStatus {
     Submitted,
 }
 
+/// Who authored a review comment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CommentAuthor {
+    #[default]
+    User,
+    Agent,
+}
+
 /// A single line-anchored review comment with snapshot context for LLM use.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReviewComment {
@@ -31,6 +40,8 @@ pub struct ReviewComment {
     #[serde(skip)]
     pub char_idx: usize,
     pub body: String,
+    #[serde(default)]
+    pub author: CommentAuthor,
     pub context_before: Vec<String>,
     pub context_after: Vec<String>,
     pub code_at_comment: String,

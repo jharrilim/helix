@@ -67,6 +67,10 @@ pub(crate) fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent
         cx.editor.close_git_panel();
         return Ok(());
     }
+    if cx.editor.tree.is_review_panel(cx.editor.tree.focus) {
+        cx.editor.close_review_panel();
+        return Ok(());
+    }
     if cx.editor.tree.is_plan_panel(cx.editor.tree.focus) {
         crate::ui::plan::cancel_plan_flow(cx.editor);
         return Ok(());
@@ -103,6 +107,10 @@ pub(crate) fn force_quit(cx: &mut compositor::Context, _args: Args, event: Promp
     }
     if cx.editor.tree.is_git_panel(cx.editor.tree.focus) {
         cx.editor.close_git_panel();
+        return Ok(());
+    }
+    if cx.editor.tree.is_review_panel(cx.editor.tree.focus) {
+        cx.editor.close_review_panel();
         return Ok(());
     }
     if cx.editor.tree.is_plan_panel(cx.editor.tree.focus) {
@@ -548,6 +556,7 @@ fn quit_all_impl(cx: &mut compositor::Context, force: bool) -> anyhow::Result<()
     crate::commands::agent::close_agent_panel_editor(cx.editor);
     crate::commands::terminal::close_terminal_panel_editor(cx.editor);
     cx.editor.close_git_panel();
+    cx.editor.close_review_panel();
 
     // close all views
     let views: Vec<_> = cx.editor.tree.views().map(|(view, _)| view.id).collect();

@@ -352,6 +352,15 @@ impl Application {
 
         let surface = self.terminal.current_buffer_mut();
 
+        let prompt_cursor = if cx.editor.review.pending_comment.is_some() {
+            self.compositor
+                .find::<crate::ui::Prompt>()
+                .map(|prompt| prompt.position())
+        } else {
+            None
+        };
+        helix_view::review::sync_review_draft_ui(&mut cx.editor, prompt_cursor);
+
         self.compositor.render(area, surface, &mut cx);
         let (pos, kind) = self.compositor.cursor(area, &self.editor);
         // reset cursor cache
@@ -1209,6 +1218,7 @@ impl Application {
                                         ui::PromptEvent::Update => return,
                                         ui::PromptEvent::Validate => Some(action.clone()),
                                         ui::PromptEvent::Abort => None,
+                                        ui::PromptEvent::Advance => return,
                                     };
                                     if let Some(language_server) =
                                         editor.language_server_by_id(server_id)

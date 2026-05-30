@@ -95,6 +95,15 @@ pub fn list_reviews(repo_slug: &str) -> Vec<ReviewListEntry> {
     reviews
 }
 
+/// Remove a saved review and all on-disk artifacts.
+pub fn delete_review(repo_slug: &str, review_id: &str) -> anyhow::Result<()> {
+    let dir = review_dir(repo_slug, review_id);
+    if dir.exists() {
+        fs::remove_dir_all(dir)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -125,11 +134,13 @@ mod tests {
             diff_side: Some(DiffSide::Added),
             hunk_index: Some(0),
             created_at: "1".into(),
+            author: crate::CommentAuthor::User,
         });
 
         save_review(slug, &review).unwrap();
         let loaded = load_review(slug, &review.metadata.id).unwrap();
         assert_eq!(loaded.comments.len(), 1);
         assert_eq!(loaded.comments[0].body, "Use a helper");
+        assert_eq!(loaded.comments[0].author, crate::CommentAuthor::User);
     }
 }

@@ -76,6 +76,39 @@ pub fn terminal_panel_close(cx: &mut Context) {
     crate::commands::terminal::close_terminal_panel_editor(cx.editor);
 }
 
+// --- Review panel ---
+
+pub fn review_panel_move_down(cx: &mut Context) {
+    crate::ui::review_panel::move_selection_next(cx.editor);
+}
+
+pub fn review_panel_move_up(cx: &mut Context) {
+    crate::ui::review_panel::move_selection_prev(cx.editor);
+}
+
+pub fn review_panel_activate(cx: &mut Context) {
+    crate::commands::review::review_panel_activate_editor(cx.editor);
+}
+
+pub fn review_panel_delete(cx: &mut Context) {
+    crate::commands::review::review_panel_delete_editor(cx.editor);
+}
+
+pub fn review_panel_submit(cx: &mut Context) {
+    crate::commands::review::review_submit_editor(cx.editor, cx.jobs);
+    crate::ui::review_panel::refresh_list(cx.editor);
+    helix_event::request_redraw();
+}
+
+pub fn review_panel_refresh(cx: &mut Context) {
+    crate::ui::review_panel::refresh_list(cx.editor);
+    helix_event::request_redraw();
+}
+
+pub fn review_panel_close(cx: &mut Context) {
+    cx.editor.close_review_panel();
+}
+
 // --- Plan panel ---
 
 pub fn plan_panel_page_up(cx: &mut Context) {

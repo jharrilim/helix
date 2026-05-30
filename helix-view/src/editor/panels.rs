@@ -362,6 +362,56 @@ impl Editor {
         }
     }
 
+    pub fn open_review_panel(&mut self) {
+        if let Some(panel_id) = self.review_panel.panel_id {
+            if self.tree.focus != panel_id {
+                prepare_panel_focus(self);
+            }
+            self.tree.focus = panel_id;
+            return;
+        }
+
+        prepare_panel_focus(self);
+        let panel_id = self.tree.split_review_panel(Layout::Vertical);
+        self.review_panel.panel_id = Some(panel_id);
+        self.tree.focus = panel_id;
+        self._refresh();
+    }
+
+    pub fn close_review_panel(&mut self) {
+        let Some(panel_id) = self.review_panel.panel_id.take() else {
+            return;
+        };
+        if self.tree.focus == panel_id {
+            self.tree.focus = self.tree.prev();
+        }
+        if self.tree.contains(panel_id) {
+            self.tree.remove(panel_id);
+        }
+        self._refresh();
+    }
+
+    pub fn focus_review_panel(&mut self) {
+        if let Some(panel_id) = self.review_panel.panel_id {
+            if self.tree.focus != panel_id {
+                prepare_panel_focus(self);
+            }
+            self.tree.focus = panel_id;
+        }
+    }
+
+    pub fn focus_editor_from_review_panel(&mut self) {
+        if self.tree.is_review_panel(self.tree.focus) {
+            let focus = self
+                .tree
+                .views()
+                .map(|(view, _)| view.id)
+                .next()
+                .unwrap_or(self.tree.focus);
+            self.tree.focus = focus;
+        }
+    }
+
     pub fn focus_editor_from_plan(&mut self) {
         if self.tree.is_plan_panel(self.tree.focus) {
             if let Some(stashed) = self.plan.stashed_editor_root {

@@ -124,6 +124,7 @@ pub(crate) fn goto_line_number(
         // begin typing numbers again, we'll start a new preview session.
         PromptEvent::Update if args.is_empty() => abort_goto_line_number_preview(cx),
         PromptEvent::Update => update_goto_line_number_preview(cx, args)?,
+        PromptEvent::Advance => {}
     }
 
     Ok(())

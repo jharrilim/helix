@@ -199,6 +199,7 @@ impl Completion {
                     };
                 }
                 PromptEvent::Update => {}
+                PromptEvent::Advance => {}
                 PromptEvent::Validate => {
                     if let Some(CompleteAction::Selected { savepoint }) =
                         editor.last_completion.take()

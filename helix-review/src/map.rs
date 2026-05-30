@@ -57,6 +57,7 @@ mod tests {
             diff_side: None,
             hunk_index: None,
             created_at: "1".into(),
+            author: crate::CommentAuthor::User,
         }];
 
         let transaction = Transaction::change(
