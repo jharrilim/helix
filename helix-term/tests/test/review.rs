@@ -1,4 +1,8 @@
-use helix_view::{parse_unified_diff_line_map, DiffSide};
+use helix_term::commands::{add_agent_review_reply_editor, AgentReviewReplyInput};
+use helix_view::{
+    normalize_comment_path, parse_unified_diff_line_map, timestamp_now, CommentAuthor, DiffSide,
+    ReviewComment,
+};
 
 use super::helpers::{test_key_sequence, AppBuilder};
 
@@ -172,5 +176,112 @@ async fn typed_review_comment_opens_prompt() -> anyhow::Result<()> {
         false,
     )
     .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_review_reply_by_comment_id() -> anyhow::Result<()> {
+    let mut file = tempfile::NamedTempFile::new()?;
+    std::io::Write::write_all(&mut file, b"hello\n")?;
+    let file_path = file.path().to_path_buf();
+
+    let mut app = AppBuilder::new().with_file(file.path(), None).build()?;
+    app.validate_typed_command("review-toggle", "")?;
+
+    {
+        let review = app.editor.review.current.as_mut().expect("active review");
+        let normalized = normalize_comment_path(&file_path, &review.metadata.repo_root);
+        review.comments.push(ReviewComment {
+            id: "parent-comment".into(),
+            file: normalized,
+            line: 0,
+            line_end: None,
+            char_idx: 0,
+            body: "Existing comment".into(),
+            author: CommentAuthor::User,
+            context_before: Vec::new(),
+            context_after: Vec::new(),
+            code_at_comment: String::new(),
+            diff_side: None,
+            hunk_index: None,
+            created_at: timestamp_now(),
+        });
+    }
+
+    let output = add_agent_review_reply_editor(
+        &mut app.editor,
+        AgentReviewReplyInput {
+            review_id: None,
+            comment_id: Some("parent-comment".into()),
+            file_path: None,
+            line: None,
+            body: "Agent reply".into(),
+        },
+    )
+    .map_err(anyhow::Error::msg)?;
+
+    let review = app.editor.review.current.as_ref().expect("active review");
+    let inserted = review
+        .comments
+        .iter()
+        .find(|comment| comment.id == output.comment_id)
+        .expect("inserted comment");
+    assert_eq!(inserted.author, CommentAuthor::Agent);
+    assert_eq!(inserted.line, 0);
+    assert_eq!(inserted.body, "Agent reply");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_review_reply_by_file_line() -> anyhow::Result<()> {
+    let mut file = tempfile::NamedTempFile::new()?;
+    std::io::Write::write_all(&mut file, b"hello\n")?;
+    let file_path = file.path().to_path_buf();
+
+    let mut app = AppBuilder::new().with_file(file.path(), None).build()?;
+    app.validate_typed_command("review-toggle", "")?;
+
+    let output = add_agent_review_reply_editor(
+        &mut app.editor,
+        AgentReviewReplyInput {
+            review_id: None,
+            comment_id: None,
+            file_path: Some(file_path.clone()),
+            line: Some(0),
+            body: "Agent line reply".into(),
+        },
+    )
+    .map_err(anyhow::Error::msg)?;
+
+    let review = app.editor.review.current.as_ref().expect("active review");
+    let inserted = review
+        .comments
+        .iter()
+        .find(|comment| comment.id == output.comment_id)
+        .expect("inserted comment");
+    assert_eq!(inserted.author, CommentAuthor::Agent);
+    assert_eq!(inserted.line, 0);
+    let normalized = normalize_comment_path(&file_path, &review.metadata.repo_root);
+    assert_eq!(inserted.file, normalized);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_review_reply_invalid_comment_id_errors() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().with_file("foo.txt", None).build()?;
+    app.validate_typed_command("review-toggle", "")?;
+
+    let err = add_agent_review_reply_editor(
+        &mut app.editor,
+        AgentReviewReplyInput {
+            review_id: None,
+            comment_id: Some("missing-comment".into()),
+            file_path: None,
+            line: None,
+            body: "reply".into(),
+        },
+    )
+    .expect_err("missing comment id should fail");
+    assert!(err.contains("not found"));
     Ok(())
 }

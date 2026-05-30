@@ -883,6 +883,7 @@ pub fn gather_prompt_context(editor: &Editor) -> Option<helix_acp::AgentPromptCo
         return Some(helix_acp::AgentPromptContext {
             file_path: path,
             selection,
+            review_id: editor.review.current.as_ref().map(|review| review.metadata.id.clone()),
         });
     }
 

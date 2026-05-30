@@ -27,9 +27,14 @@ pub fn resolve_mcp_servers(cwd: &Path, override_path: Option<&Path>) -> Vec<McpS
         .map(|path| vec![path.to_path_buf()])
         .unwrap_or_else(|| default_mcp_config_paths(cwd));
 
+    let mut built_in = built_in_helix_review_mcp_server();
+
     for path in paths {
         match load_mcp_servers(&path) {
-            Ok(servers) if !servers.is_empty() => return servers,
+            Ok(mut servers) if !servers.is_empty() => {
+                append_built_in_server(&mut servers, built_in.take());
+                return servers;
+            }
             Ok(_) => continue,
             Err(err) => {
                 log::debug!("failed to load MCP config {}: {err:#}", path.display());
@@ -37,7 +42,7 @@ pub fn resolve_mcp_servers(cwd: &Path, override_path: Option<&Path>) -> Vec<McpS
         }
     }
 
-    Vec::new()
+    built_in.into_iter().collect()
 }
 
 fn default_mcp_config_paths(cwd: &Path) -> Vec<PathBuf> {
@@ -75,6 +80,28 @@ fn load_mcp_servers(path: &Path) -> Result<Vec<McpServer>> {
             )
         })
         .collect())
+}
+
+fn built_in_helix_review_mcp_server() -> Option<McpServer> {
+    let exe = std::env::current_exe().ok()?;
+    Some(McpServer::Stdio(
+        McpServerStdio::new("helix-review".to_string(), exe).args(vec![
+            "--helix-review-mcp".to_string(),
+        ]),
+    ))
+}
+
+fn append_built_in_server(servers: &mut Vec<McpServer>, built_in: Option<McpServer>) {
+    let Some(server) = built_in else {
+        return;
+    };
+    let already_present = servers.iter().any(|existing| match existing {
+        McpServer::Stdio(stdio) => stdio.name == "helix-review",
+        _ => false,
+    });
+    if !already_present {
+        servers.push(server);
+    }
 }
 
 #[cfg(test)]

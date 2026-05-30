@@ -41,6 +41,44 @@ fn main() -> Result<()> {
 async fn main_impl() -> Result<i32> {
     let args = Args::parse_args().context("could not parse arguments")?;
 
+    if let Some(path) = &args.working_directory {
+        helix_stdx::env::set_current_working_dir(path)?;
+    } else if let Some((path, _)) = args.files.first().filter(|p| p.0.is_dir()) {
+        helix_stdx::env::set_current_working_dir(path)?;
+    }
+
+    if args.review_reply {
+        let review_id = args
+            .review_reply_review_id
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("--review-id is required for --review-reply"))?;
+        let body = args
+            .review_reply_body
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("--body is required for --review-reply"))?;
+
+        let output =
+            helix_term::review_mcp::run_review_reply_cli(helix_term::review_mcp::ReviewReplyCliArgs {
+                review_id,
+                comment_id: args.review_reply_comment_id.clone(),
+                file_path: args.review_reply_file_path.clone(),
+                line: args.review_reply_line,
+                body,
+            })
+            .map_err(anyhow::Error::msg)?;
+        println!(
+            "review reply added: commentId={} reviewId={}",
+            output.comment_id, output.review_id
+        );
+        return Ok(0);
+    }
+
+    if args.review_mcp {
+        helix_term::review_mcp::run_stdio_server()
+            .context("failed to run Helix review MCP server")?;
+        return Ok(0);
+    }
+
     helix_loader::initialize_config_file(args.config_file.clone());
     helix_loader::initialize_log_file(args.log_file.clone());
 
@@ -76,6 +114,13 @@ FLAGS:
     --vsplit                       Split all given files vertically into different windows
     --hsplit                       Split all given files horizontally into different windows
     -w, --working-dir <path>       Specify an initial working directory
+    --helix-review-mcp             Run Helix review MCP server over stdio
+    --review-reply                 Add a review reply from CLI (non-interactive)
+    --review-id <id>               Review id for --review-reply
+    --comment-id <id>              Comment id target for --review-reply
+    --file-path <path>             File path target for --review-reply (with --line)
+    --line <number>                0-based line target for --review-reply
+    --body <text>                  Reply body text for --review-reply
     +[N]                           Open the first given file at line number N, or the last line, if
                                    N is not specified.
 ",
@@ -116,15 +161,7 @@ FLAGS:
     }
 
     setup_logging(args.verbosity).context("failed to initialize logging")?;
-
-    // NOTE: Set the working directory early so the correct configuration is loaded. Be aware that
-    // Application::new() depends on this logic so it must be updated if this changes.
-    if let Some(path) = &args.working_directory {
-        helix_stdx::env::set_current_working_dir(path)?;
-    } else if let Some((path, _)) = args.files.first().filter(|p| p.0.is_dir()) {
-        // If the first file is a directory, it will be the working directory unless -w was specified
-        helix_stdx::env::set_current_working_dir(path)?;
-    } else if let Err(err) = std::env::current_dir() {
+    if let Err(err) = std::env::current_dir() {
         eprintln!("Couldn't determine the current working directory: {err}");
         eprintln!("Check that it still exists, or pass an initial directory with `--working-dir`");
         return Ok(1);

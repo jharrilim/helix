@@ -20,6 +20,13 @@ pub struct Args {
     pub config_file: Option<PathBuf>,
     pub files: IndexMap<PathBuf, Vec<Position>>,
     pub working_directory: Option<PathBuf>,
+    pub review_mcp: bool,
+    pub review_reply: bool,
+    pub review_reply_review_id: Option<String>,
+    pub review_reply_comment_id: Option<String>,
+    pub review_reply_file_path: Option<PathBuf>,
+    pub review_reply_line: Option<usize>,
+    pub review_reply_body: Option<String>,
 }
 
 impl Args {
@@ -49,6 +56,34 @@ impl Args {
                 "--version" => args.display_version = true,
                 "--help" => args.display_help = true,
                 "--strict" => args.strict = true,
+                "--helix-review-mcp" => args.review_mcp = true,
+                "--review-reply" => args.review_reply = true,
+                "--review-id" => match argv.next() {
+                    Some(value) => args.review_reply_review_id = Some(value),
+                    None => anyhow::bail!("--review-id must be followed by a value"),
+                },
+                "--comment-id" => match argv.next() {
+                    Some(value) => args.review_reply_comment_id = Some(value),
+                    None => anyhow::bail!("--comment-id must be followed by a value"),
+                },
+                "--file-path" => match argv.next() {
+                    Some(value) => args.review_reply_file_path = Some(PathBuf::from(value)),
+                    None => anyhow::bail!("--file-path must be followed by a value"),
+                },
+                "--line" => match argv.next() {
+                    Some(value) => {
+                        args.review_reply_line = Some(
+                            value
+                                .parse::<usize>()
+                                .map_err(|_| anyhow::anyhow!("--line must be a non-negative integer"))?,
+                        )
+                    }
+                    None => anyhow::bail!("--line must be followed by a value"),
+                },
+                "--body" => match argv.next() {
+                    Some(value) => args.review_reply_body = Some(value),
+                    None => anyhow::bail!("--body must be followed by a value"),
+                },
                 "--tutor" => args.load_tutor = true,
                 "--vsplit" => match args.split {
                     Some(_) => anyhow::bail!("can only set a split once of a specific type"),

@@ -50,6 +50,7 @@ pub struct AgentModeInfo {
 pub struct AgentPromptContext {
     pub file_path: PathBuf,
     pub selection: Option<String>,
+    pub review_id: Option<String>,
 }
 
 /// Permission option for an interactive permission request.

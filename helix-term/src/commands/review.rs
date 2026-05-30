@@ -22,6 +22,94 @@ use crate::ui::{overlay::overlaid, Prompt, PromptEvent, Picker, PickerColumn};
 
 const CONTEXT_LINES: usize = 3;
 
+/// Input for appending an agent-authored review reply comment.
+#[derive(Debug, Clone)]
+pub struct AgentReviewReplyInput {
+    pub review_id: Option<String>,
+    pub comment_id: Option<String>,
+    pub file_path: Option<PathBuf>,
+    pub line: Option<usize>,
+    pub body: String,
+}
+
+/// Output metadata after writing an agent-authored review reply.
+#[derive(Debug, Clone)]
+pub struct AgentReviewReplyOutput {
+    pub comment_id: String,
+    pub review_id: String,
+}
+
+/// Append an agent-authored reply to a loaded review payload.
+pub fn append_agent_review_reply_to_review(
+    review: &mut helix_view::ReviewData,
+    input: &AgentReviewReplyInput,
+) -> Result<String, String> {
+    let repo_root = review.metadata.repo_root.clone();
+    let target = if let Some(parent_id) = input.comment_id.as_deref() {
+        let parent = review
+            .comments
+            .iter()
+            .find(|comment| comment.id == parent_id)
+            .cloned()
+            .ok_or_else(|| format!("review comment id '{parent_id}' not found"))?;
+
+        if let (Some(file_path), Some(line)) = (input.file_path.as_ref(), input.line) {
+            let normalized = normalize_comment_path(file_path, &repo_root);
+            if normalized != parent.file || line != parent.line {
+                return Err(
+                    "comment_id target conflicts with explicit file_path/line target".into(),
+                );
+            }
+        }
+
+        (
+            parent.file,
+            parent.line,
+            parent.context_before,
+            parent.code_at_comment,
+            parent.context_after,
+            parent.diff_side,
+            parent.hunk_index,
+        )
+    } else {
+        let file_path = input
+            .file_path
+            .as_ref()
+            .ok_or_else(|| "file_path is required when comment_id is not provided".to_string())?;
+        let line = input
+            .line
+            .ok_or_else(|| "line is required when comment_id is not provided".to_string())?;
+        (
+            normalize_comment_path(file_path, &repo_root),
+            line,
+            Vec::new(),
+            String::new(),
+            Vec::new(),
+            None,
+            None,
+        )
+    };
+
+    let comment = ReviewComment {
+        id: new_comment_id(),
+        file: target.0,
+        line: target.1,
+        line_end: None,
+        char_idx: 0,
+        body: input.body.trim().to_string(),
+        author: helix_view::CommentAuthor::Agent,
+        context_before: target.2,
+        context_after: target.4,
+        code_at_comment: target.3,
+        diff_side: target.5,
+        hunk_index: target.6,
+        created_at: timestamp_now(),
+    };
+    let comment_id = comment.id.clone();
+    review.comments.push(comment);
+    Ok(comment_id)
+}
+
 pub fn review_toggle_editor(editor: &mut Editor) {
     editor.review.ensure_repo_slug();
     if editor.review.active {
@@ -603,6 +691,54 @@ fn comment_open_path(editor: &Editor, comment: &ReviewComment) -> PathBuf {
         .as_ref()
         .map(|review| review.metadata.repo_root.join(&comment.file))
         .unwrap_or_else(|| comment.file.clone())
+}
+
+/// Append an `Agent` review reply comment and persist/sync editor state.
+pub fn add_agent_review_reply_editor(
+    editor: &mut Editor,
+    input: AgentReviewReplyInput,
+) -> Result<AgentReviewReplyOutput, String> {
+    let body = input.body.trim().to_string();
+    if body.is_empty() {
+        return Err("review reply body is empty".into());
+    }
+
+    editor.review.ensure_repo_slug();
+    let repo_slug = editor.review.repo_slug.clone();
+
+    let (review_id, comment_id) = {
+        let review = editor
+            .review
+            .current
+            .as_mut()
+            .ok_or_else(|| "no active review session".to_string())?;
+
+        if let Some(expected_review_id) = input.review_id.as_deref() {
+            if review.metadata.id != expected_review_id {
+                return Err(format!(
+                    "active review id '{}' does not match requested '{}'",
+                    review.metadata.id, expected_review_id
+                ));
+            }
+        }
+
+        let comment_id = append_agent_review_reply_to_review(review, &input)?;
+        let review_id = review.metadata.id.clone();
+        save_review(&repo_slug, review).map_err(|err| format!("failed to save review: {err:#}"))?;
+        (review_id, comment_id)
+    };
+
+    sync_all_open_documents(editor);
+    if editor.review_panel.is_open() {
+        crate::ui::review_panel::refresh_list(editor);
+    }
+    editor.set_status("agent review reply added");
+    helix_event::request_redraw();
+
+    Ok(AgentReviewReplyOutput {
+        comment_id,
+        review_id,
+    })
 }
 
 pub fn review_panel_toggle(cx: &mut Context) {

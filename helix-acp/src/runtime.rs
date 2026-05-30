@@ -1023,6 +1023,12 @@ fn build_prompt_blocks(text: String, context: Option<AgentPromptContext>) -> Vec
         ))));
     }
 
+    if let Some(review_id) = context.review_id.filter(|id| !id.is_empty()) {
+        blocks.push(ContentBlock::Text(TextContent::new(format!(
+            "Active review id: {review_id}. When calling the review_reply MCP tool, pass this as reviewId."
+        ))));
+    }
+
     blocks
 }
 
@@ -1417,6 +1423,7 @@ mod tests {
             Some(AgentPromptContext {
                 file_path: PathBuf::from("/tmp/example.rs"),
                 selection: Some("fn main() {}".into()),
+                review_id: None,
             }),
         );
         assert_eq!(blocks.len(), 3);

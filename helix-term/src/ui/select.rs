@@ -75,12 +75,13 @@ impl<T: Item> Component for Select<T> {
             .options
             .required_size((max_width, area.height))
             .unwrap();
-        // + 2 for borders and another + 2 for horizontal padding
-        let width = message_width + 4;
-        let height = message_height + 2 + menu_height;
+        // +2 for borders and another +2 for horizontal padding.
+        // Clamp to the available area so centering math cannot underflow.
+        let width = (message_width + 4).min(area.width);
+        let height = (message_height + 2 + menu_height).min(area.height);
         let area = Rect {
-            x: (area.width / 2) - width / 2,
-            y: (area.height / 2) - height / 2,
+            x: area.x + area.width.saturating_sub(width) / 2,
+            y: area.y + area.height.saturating_sub(height) / 2,
             width,
             height,
         };

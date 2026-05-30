@@ -10,6 +10,7 @@ pub mod events;
 pub mod health;
 pub mod job;
 pub mod keymap;
+pub mod review_mcp;
 pub mod ui;
 
 mod agent;

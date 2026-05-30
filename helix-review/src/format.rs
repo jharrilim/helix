@@ -42,11 +42,13 @@ fn append_comment(out: &mut String, comment: &ReviewComment, repo_root: &std::pa
     let timestamp = format_comment_timestamp(&comment.created_at);
     if timestamp.is_empty() {
         out.push_str(&format!(
-            "### {display_path}:{line_one_based} ({author})\n"
+            "### {display_path}:{line_one_based} ({author}) [commentId: {}]\n",
+            comment.id
         ));
     } else {
         out.push_str(&format!(
-            "### {display_path}:{line_one_based} ({author}, {timestamp})\n"
+            "### {display_path}:{line_one_based} ({author}, {timestamp}) [commentId: {}]\n",
+            comment.id
         ));
     }
     out.push_str(&format!("> {}\n\n", comment.body));
@@ -115,6 +117,7 @@ mod tests {
         assert!(formatted.contains("src/main.rs:10"));
         assert!(formatted.contains("(you"));
         assert!(formatted.contains("Looks good overall"));
+        assert!(formatted.contains("[commentId: c1]"));
     }
 
     #[test]
