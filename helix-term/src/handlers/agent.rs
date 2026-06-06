@@ -19,7 +19,7 @@ use helix_view::{
         AgentBlockKind, AgentCursorRequest, AgentModeMeta, AgentPermissionOption,
         AgentPendingPermission, AgentSessionMeta,
     },
-    Editor, View, ViewId,
+    load_review, sync_all_open_documents, Editor, View, ViewId,
 };
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -1061,6 +1061,12 @@ fn apply_event(editor: &mut Editor, event: &AgentEvent) {
                 agent_output.clone(),
                 false,
             );
+            maybe_refresh_review_after_mcp_reply(
+                editor,
+                title.as_deref(),
+                status.as_deref(),
+                detail.as_deref(),
+            );
         }
         AgentEvent::TurnStarted => {
             editor.agent.pending = true;
@@ -1244,6 +1250,74 @@ fn map_message(msg: AgentMessage) -> Option<AgentBlockKind> {
     })
 }
 
+fn maybe_refresh_review_after_mcp_reply(
+    editor: &mut Editor,
+    title: Option<&str>,
+    status: Option<&str>,
+    detail: Option<&str>,
+) {
+    if !is_completed_tool_status(status) || !is_review_reply_tool(title, detail) {
+        return;
+    }
+    refresh_active_review_from_disk(editor);
+}
+
+fn is_completed_tool_status(status: Option<&str>) -> bool {
+    let Some(status) = status else {
+        return false;
+    };
+    let status = status.to_ascii_lowercase();
+    status.contains("completed")
+        || status.contains("succeeded")
+        || status.contains("success")
+        || status.contains("finished")
+}
+
+fn is_review_reply_tool(title: Option<&str>, detail: Option<&str>) -> bool {
+    let title_matches = title
+        .map(|value| {
+            let lowered = value.to_ascii_lowercase();
+            lowered.contains("review_reply") || lowered.contains("review reply")
+        })
+        .unwrap_or(false);
+    let detail_matches = detail
+        .map(|value| value.to_ascii_lowercase().contains("review reply"))
+        .unwrap_or(false);
+    title_matches || detail_matches
+}
+
+fn refresh_active_review_from_disk(editor: &mut Editor) {
+    let Some(current_review) = editor.review.current.as_ref() else {
+        return;
+    };
+    let review_id = current_review.metadata.id.clone();
+    let previous_comment_count = current_review.comments.len();
+    let previous_navigation_index = editor.review.navigation_index;
+
+    editor.review.ensure_repo_slug();
+    let repo_slug = editor.review.repo_slug.clone();
+    let Ok(review) = load_review(&repo_slug, &review_id) else {
+        return;
+    };
+
+    let new_comment_count = review.comments.len();
+    editor.review.navigation_index = if new_comment_count == 0 {
+        0
+    } else {
+        previous_navigation_index.min(new_comment_count.saturating_sub(1))
+    };
+    if let Some(current_review) = editor.review.current.as_mut() {
+        current_review.comments = review.comments;
+    }
+    sync_all_open_documents(editor);
+    if editor.review_panel.is_open() {
+        crate::ui::review_panel::refresh_list(editor);
+    }
+    if new_comment_count > previous_comment_count {
+        editor.set_status("review updated with new agent reply");
+    }
+}
+
 pub fn fs_read_impl(editor: &Editor, path: PathBuf) -> FsReadResult {
     let path = helix_stdx::path::canonicalize(path);
     if let Some(doc) = editor.document_by_path(&path) {
@@ -1361,5 +1435,22 @@ mod tests {
             "refactor-tabs.md"
         );
         assert_eq!(plan_filename(None, "call-2"), "plan-call-2.md");
+    }
+
+    #[test]
+    fn detects_review_reply_tool_name_or_detail() {
+        assert!(is_review_reply_tool(Some("review_reply"), None));
+        assert!(is_review_reply_tool(Some("Review Reply"), None));
+        assert!(is_review_reply_tool(None, Some("Added review reply c-1")));
+        assert!(!is_review_reply_tool(Some("terminal"), Some("build done")));
+    }
+
+    #[test]
+    fn detects_completed_tool_status() {
+        assert!(is_completed_tool_status(Some("Completed")));
+        assert!(is_completed_tool_status(Some("Succeeded")));
+        assert!(is_completed_tool_status(Some("Finished")));
+        assert!(!is_completed_tool_status(Some("Running")));
+        assert!(!is_completed_tool_status(None));
     }
 }

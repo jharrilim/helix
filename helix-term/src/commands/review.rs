@@ -90,20 +90,44 @@ pub fn append_agent_review_reply_to_review(
         )
     };
 
+    let body = input.body.trim().to_string();
+    if let Some(existing) = review.comments.last().filter(|comment| {
+        comment.author == helix_view::CommentAuthor::Agent
+            && comment.file == target.0
+            && comment.line == target.1
+            && comment.body == body
+    }) {
+        return Ok(existing.id.clone());
+    }
+    let created_at = timestamp_now();
+
+    let mut comment_id = new_comment_id();
+    if review.comments.iter().any(|comment| comment.id == comment_id) {
+        let mut suffix = 1usize;
+        while review
+            .comments
+            .iter()
+            .any(|comment| comment.id == format!("{comment_id}-{suffix}"))
+        {
+            suffix += 1;
+        }
+        comment_id = format!("{comment_id}-{suffix}");
+    }
+
     let comment = ReviewComment {
-        id: new_comment_id(),
+        id: comment_id,
         file: target.0,
         line: target.1,
         line_end: None,
         char_idx: 0,
-        body: input.body.trim().to_string(),
+        body,
         author: helix_view::CommentAuthor::Agent,
         context_before: target.2,
         context_after: target.4,
         code_at_comment: target.3,
         diff_side: target.5,
         hunk_index: target.6,
-        created_at: timestamp_now(),
+        created_at,
     };
     let comment_id = comment.id.clone();
     review.comments.push(comment);

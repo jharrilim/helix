@@ -308,6 +308,7 @@ fn write_jsonrpc_message<W: Write>(writer: &mut W, message: &Value) -> io::Resul
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use helix_review::{create_new_review, load_review, save_review, timestamp_now, CommentAuthor, ReviewComment};
     use serde_json::json;
@@ -319,7 +320,11 @@ mod tests {
         std::fs::create_dir_all(repo_root.join("src")).expect("create repo tree");
         std::fs::write(repo_root.join("src/lib.rs"), "fn demo() {}\n").expect("write file");
 
-        let slug = format!("review-mcp-test-{}", timestamp_now());
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let slug = format!("review-mcp-test-{unique}");
         let mut review = create_new_review(&repo_root, &slug, "MCP test review");
         review.comments.push(ReviewComment {
             id: "parent-comment".into(),
@@ -406,5 +411,41 @@ mod tests {
         )
         .expect_err("tool should require review id");
         assert!(err.contains("reviewId is required"));
+    }
+
+    #[test]
+    fn review_reply_tool_dedupes_repeated_same_second_reply() {
+        let (_temp, slug, review_id) = setup_review_with_parent_comment();
+        let first = execute_review_reply_for_repo(
+            &slug,
+            AgentReviewReplyInput {
+                review_id: Some(review_id.clone()),
+                comment_id: Some("parent-comment".into()),
+                file_path: None,
+                line: None,
+                body: "same reply".into(),
+            },
+        )
+        .expect("first reply");
+        let second = execute_review_reply_for_repo(
+            &slug,
+            AgentReviewReplyInput {
+                review_id: Some(review_id.clone()),
+                comment_id: Some("parent-comment".into()),
+                file_path: None,
+                line: None,
+                body: "same reply".into(),
+            },
+        )
+        .expect("second reply");
+
+        assert_eq!(first.1, second.1);
+        let saved = load_review(&slug, &review_id).expect("load saved review");
+        let reply_count = saved
+            .comments
+            .iter()
+            .filter(|comment| comment.body == "same reply")
+            .count();
+        assert_eq!(reply_count, 1);
     }
 }
